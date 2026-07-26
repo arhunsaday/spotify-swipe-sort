@@ -26,6 +26,8 @@ export default function App() {
   const loadPlaylists = useLibraryStore((s) => s.loadPlaylists);
   const sourceId = useLibraryStore((s) => s.sourceId);
   const targets = useLibraryStore((s) => s.targets);
+  const reverse = useLibraryStore((s) => s.settings.reverse);
+  const onlyUnfiled = useLibraryStore((s) => s.settings.onlyUnfiled);
 
   const loadSource = useSessionStore((s) => s.loadSource);
   const refreshMembership = useSessionStore((s) => s.refreshMembership);
@@ -65,6 +67,12 @@ export default function App() {
   useEffect(() => {
     if (status === "authed" && sourceId) void refreshMembership();
   }, [status, sourceId, targets, refreshMembership]);
+
+  // rebuild the deck when order/filter settings change mid-session
+  useEffect(() => {
+    const s = useSessionStore.getState();
+    if (s.allTracks.length) s.applyView();
+  }, [reverse, onlyUnfiled]);
 
   if (status === "loading") return <Splash />;
   if (status !== "authed") return <LoginScreen />;

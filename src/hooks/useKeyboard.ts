@@ -48,6 +48,9 @@ export function useKeyboard(enabled: boolean) {
       } else if (key === "z") {
         session.undoLast();
         e.preventDefault();
+      } else if (e.key === "Enter") {
+        void session.applyPending(); // batch mode: flush queued changes
+        e.preventDefault();
       } else if (e.key === "?") {
         ui.toggleHelp();
         e.preventDefault();

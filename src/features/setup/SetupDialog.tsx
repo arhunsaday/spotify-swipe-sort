@@ -226,9 +226,24 @@ function SettingsSection() {
       hint: "Jump to the next track after filing one.",
     },
     {
+      key: "reverse",
+      label: "Reverse order",
+      hint: "Go through the source last-added first, instead of first-added.",
+    },
+    {
+      key: "onlyUnfiled",
+      label: "Only unsorted tracks",
+      hint: "Hide tracks that are already in one of your target playlists.",
+    },
+    {
+      key: "batchMode",
+      label: "Batch mode",
+      hint: "Queue adds/removes and apply them together (Enter) — far fewer API calls, avoids the dev-mode quota.",
+    },
+    {
       key: "moveMode",
       label: "Move (remove from source)",
-      hint: "Filing also removes the track from the source — true inbox triage. Off = copy.",
+      hint: "Filing also removes the track from the source — true inbox triage. Off = copy. (Ignored in batch mode.)",
     },
     {
       key: "previewAutoplay",

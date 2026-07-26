@@ -9,7 +9,17 @@ export interface Settings {
   /** move = also remove from source after filing (destructive); copy = keep. */
   moveMode: boolean;
   previewAutoplay: boolean;
+  /** iterate the source last-added → first instead of first → last. */
+  reverse: boolean;
+  /** only show source tracks that aren't in any target playlist yet. */
+  onlyUnfiled: boolean;
+  /** queue adds/removes locally and apply them in one batched request set. */
+  batchMode: boolean;
 }
+
+/** Queued (not-yet-applied) batch changes per target playlist. Persisted. */
+export type PendingDelta = { add: string[]; remove: string[] };
+export type Pending = Record<string, PendingDelta>;
 
 interface LibraryState {
   playlists: SpotifyPlaylist[];
@@ -19,6 +29,8 @@ interface LibraryState {
   settings: Settings;
   /** last position per source, so a reload resumes where you left off. */
   positions: Record<string, number>;
+  /** batch queue: targetId -> {add, remove} trackIds, survives reloads. */
+  pending: Pending;
 
   loadPlaylists: () => Promise<void>;
   setSource: (id: string) => void;
@@ -26,6 +38,12 @@ interface LibraryState {
   toggleTarget: (pl: { id: string; name: string; imageUrl?: string }) => void;
   setSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
   setPosition: (sourceId: string, index: number) => void;
+  queueChange: (targetId: string, trackId: string, op: "add" | "remove") => void;
+  clearPending: () => void;
+  /** move a target to a new index; keys are re-assigned by position. */
+  reorderTarget: (id: string, toIndex: number) => void;
+  /** rebind a target to a specific hotkey (moves it to that key's slot). */
+  setTargetKey: (id: string, key: string) => void;
 }
 
 function renumber(targets: Target[]): Target[] {
@@ -39,8 +57,16 @@ export const useLibraryStore = create<LibraryState>()(
       loadingPlaylists: false,
       sourceId: null,
       targets: [],
-      settings: { autoAdvance: false, moveMode: false, previewAutoplay: true },
+      settings: {
+        autoAdvance: false,
+        moveMode: false,
+        previewAutoplay: true,
+        reverse: false,
+        onlyUnfiled: false,
+        batchMode: false,
+      },
       positions: {},
+      pending: {},
 
       loadPlaylists: async () => {
         set({ loadingPlaylists: true });
@@ -60,7 +86,13 @@ export const useLibraryStore = create<LibraryState>()(
         const targets = get().targets;
         const idx = targets.findIndex((t) => t.id === pl.id);
         if (idx >= 0) {
-          set({ targets: renumber(targets.filter((t) => t.id !== pl.id)) });
+          // untargeting: drop any queued changes for it too
+          const pending = { ...get().pending };
+          delete pending[pl.id];
+          set({
+            targets: renumber(targets.filter((t) => t.id !== pl.id)),
+            pending,
+          });
         } else {
           if (targets.length >= MAX_TARGETS) return;
           set({
@@ -77,14 +109,49 @@ export const useLibraryStore = create<LibraryState>()(
 
       setPosition: (sourceId, index) =>
         set({ positions: { ...get().positions, [sourceId]: index } }),
+
+      queueChange: (targetId, trackId, op) => {
+        const pending = { ...get().pending };
+        const cur = pending[targetId] ?? { add: [], remove: [] };
+        let add = cur.add.filter((id) => id !== trackId);
+        let remove = cur.remove.filter((id) => id !== trackId);
+        // an add cancels a queued remove and vice-versa; otherwise it's queued
+        if (op === "add") {
+          if (!cur.remove.includes(trackId)) add = [...add, trackId];
+        } else {
+          if (!cur.add.includes(trackId)) remove = [...remove, trackId];
+        }
+        if (add.length === 0 && remove.length === 0) delete pending[targetId];
+        else pending[targetId] = { add, remove };
+        set({ pending });
+      },
+
+      clearPending: () => set({ pending: {} }),
+
+      reorderTarget: (id, toIndex) => {
+        const targets = [...get().targets];
+        const from = targets.findIndex((t) => t.id === id);
+        if (from < 0) return;
+        const to = Math.max(0, Math.min(toIndex, targets.length - 1));
+        if (to === from) return;
+        const [item] = targets.splice(from, 1);
+        targets.splice(to, 0, item);
+        set({ targets: renumber(targets) });
+      },
+
+      setTargetKey: (id, key) => {
+        const i = (HOTKEYS as readonly string[]).indexOf(key);
+        if (i < 0) return;
+        get().reorderTarget(id, i);
+      },
     }),
     {
       name: "sw.library",
-      version: 1,
+      version: 2,
       migrate: (persisted, version) => {
         const s = persisted as Partial<LibraryState> | undefined;
-        // v0 defaulted auto-advance ON, which fights multi-filing — flip it off once.
-        if (version < 1 && s?.settings) s.settings.autoAdvance = false;
+        // auto-advance historically defaulted ON, which fights multi-filing.
+        if (version < 2 && s?.settings) s.settings.autoAdvance = false;
         return s as LibraryState;
       },
       partialize: (s) => ({
@@ -92,6 +159,7 @@ export const useLibraryStore = create<LibraryState>()(
         targets: s.targets,
         settings: s.settings,
         positions: s.positions,
+        pending: s.pending,
       }),
     },
   ),

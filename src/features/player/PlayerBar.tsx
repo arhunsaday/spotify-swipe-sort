@@ -84,9 +84,9 @@ export function PlayerBar() {
           aria-label="Play/pause"
         >
           {playing ? (
-            <Pause className="h-4 w-4" />
+            <Pause className="h-8 w-8" />
           ) : (
-            <Play className="h-4 w-4" />
+            <Play className="h-8 w-8" />
           )}
         </Button>
         <Button

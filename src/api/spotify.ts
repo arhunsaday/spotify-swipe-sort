@@ -103,6 +103,24 @@ export async function removeTrackFromPlaylist(playlistId: string, uri: string) {
   });
 }
 
+// Batched variants — Spotify accepts up to 100 URIs per add/remove request.
+export async function addTracksToPlaylist(playlistId: string, uris: string[]) {
+  await spotifyFetch(`/playlists/${playlistId}/tracks`, {
+    method: "POST",
+    body: JSON.stringify({ uris }),
+  });
+}
+
+export async function removeTracksFromPlaylist(
+  playlistId: string,
+  uris: string[],
+) {
+  await spotifyFetch(`/playlists/${playlistId}/tracks`, {
+    method: "DELETE",
+    body: JSON.stringify({ tracks: uris.map((uri) => ({ uri })) }),
+  });
+}
+
 export async function saveTrackToLiked(trackId: string) {
   await spotifyFetch(`/me/tracks?ids=${trackId}`, { method: "PUT" });
 }
