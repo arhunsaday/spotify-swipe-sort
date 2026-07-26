@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spotify Preview PoC</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 15px/1.5 system-ui, -apple-system, sans-serif;
+    background: #121212; color: #eee; padding: 24px; max-width: 720px; margin-inline: auto;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #9a9a9a; margin: 0 0 20px; font-size: 13px; }
+  .card { background: #1e1e1e; border: 1px solid #2c2c2c; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  label { display: block; font-size: 12px; color: #9a9a9a; margin-bottom: 4px; }
+  input {
+    width: 100%; padding: 9px 11px; border-radius: 8px; border: 1px solid #3a3a3a;
+    background: #101010; color: #eee; font-size: 14px; margin-bottom: 10px;
+  }
+  button {
+    background: #1db954; color: #000; border: 0; border-radius: 999px; padding: 9px 18px;
+    font-weight: 600; font-size: 14px; cursor: pointer;
+  }
+  button.secondary { background: #333; color: #eee; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .track {
+    display: flex; gap: 12px; align-items: center; padding: 10px; border-radius: 10px;
+    border: 1px solid #2c2c2c; margin-bottom: 8px;
+  }
+  .track img { width: 48px; height: 48px; border-radius: 6px; object-fit: cover; background:#333; }
+  .track .meta { flex: 1; min-width: 0; }
+  .track .meta .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track .meta .a { color: #9a9a9a; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { background: #143d22; color: #4ade80; }
+  .pill.no { background: #3d1414; color: #f87171; }
+  .pill.wait { background: #333; color: #aaa; }
+  code { background: #000; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  a { color: #1db954; }
+  #status { font-size: 13px; color: #9a9a9a; min-height: 18px; }
+</style>
+</head>
+<body>
+  <h1>Spotify + iTunes Preview PoC</h1>
+  <p class="sub">Proves the two halves of the idea: (1) read your playlists via Spotify OAuth, (2) get a 30s preview per track from iTunes by ISRC. No backend, no build step.</p>
+
+  <div class="card" id="setup">
+    <label>Your Spotify <b>Client ID</b> (from developer.spotify.com dashboard)</label>
+    <input id="clientId" placeholder="e.g. 7ad9971da46c4b58ae54f9c36d6abf35" autocomplete="off" />
+    <p class="sub" style="margin:0 0 12px">
+      In your app's dashboard settings, add this exact page URL as a <b>Redirect URI</b>:<br />
+      <code id="redirectHint">(open this file over http/https, not file://)</code>
+    </p>
+    <button id="loginBtn">Log in with Spotify</button>
+  </div>
+
+  <div class="card" id="app" style="display:none">
+    <div class="row" style="justify-content:space-between; margin-bottom:12px">
+      <div id="who" class="sub" style="margin:0"></div>
+      <button class="secondary" id="logoutBtn">Reset auth</button>
+    </div>
+    <div id="status"></div>
+    <div id="playlists"></div>
+    <div id="tracks"></div>
+  </div>
+
+<script>
+const SCOPES = "playlist-read-private playlist-read-collaborative";
+const AUTH_URL = "https://accounts.spotify.com/authorize";
+const TOKEN_URL = "https://accounts.spotify.com/api/token";
+const redirectUri = location.origin + location.pathname;
+
+document.getElementById("redirectHint").textContent =
+  location.protocol.startsWith("http") ? redirectUri : "Serve over http(s) — file:// will not work for OAuth";
+
+// ---------- PKCE helpers ----------
+function randStr(n){ const a=new Uint8Array(n); crypto.getRandomValues(a);
+  return Array.from(a, b => ("0"+b.toString(16)).slice(-2)).join(""); }
+async function sha256b64url(s){
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return btoa(String.fromCharCode(...new Uint8Array(d)))
+    .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+
+// ---------- token storage ----------
+const T = {
+  get: () => JSON.parse(localStorage.getItem("poc_tok") || "null"),
+  set: t => localStorage.setItem("poc_tok", JSON.stringify(t)),
+  clear: () => { localStorage.removeItem("poc_tok"); localStorage.removeItem("poc_cid"); }
+};
+
+async function login(){
+  const cid = document.getElementById("clientId").value.trim();
+  if(!cid){ alert("Enter your Client ID first"); return; }
+  localStorage.setItem("poc_cid", cid);
+  const verifier = randStr(48);
+  localStorage.setItem("poc_verifier", verifier);
+  const challenge = await sha256b64url(verifier);
+  const p = new URLSearchParams({
+    client_id: cid, response_type: "code", redirect_uri: redirectUri,
+    scope: SCOPES, code_challenge_method: "S256", code_challenge: challenge
+  });
+  location.href = `${AUTH_URL}?${p}`;
+}
+
+async function exchangeCode(code){
+  const cid = localStorage.getItem("poc_cid");
+  const verifier = localStorage.getItem("poc_verifier");
+  const body = new URLSearchParams({
+    client_id: cid, grant_type: "authorization_code", code,
+    redirect_uri: redirectUri, code_verifier: verifier
+  });
+  const r = await fetch(TOKEN_URL, { method:"POST",
+    headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
+  if(!r.ok) throw new Error("Token exchange failed: " + await r.text());
+  const t = await r.json();
+  t.expires_at = Date.now() + t.expires_in*1000;
+  T.set(t);
+}
+
+async function refresh(){
+  const t = T.get(); const cid = localStorage.getItem("poc_cid");
+  if(!t?.refresh_token) return null;
+  const body = new URLSearchParams({
+    client_id: cid, grant_type:"refresh_token", refresh_token: t.refresh_token });
+  const r = await fetch(TOKEN_URL,{ method:"POST",
+    headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
+  if(!r.ok) return null;
+  const nt = await r.json();
+  nt.refresh_token = nt.refresh_token || t.refresh_token;
+  nt.expires_at = Date.now() + nt.expires_in*1000;
+  T.set(nt); return nt;
+}
+
+async function token(){
+  let t = T.get(); if(!t) return null;
+  if(Date.now() > t.expires_at - 30000){ t = await refresh(); }
+  return t?.access_token || null;
+}
+
+async function api(path){
+  const at = await token();
+  const r = await fetch("https://api.spotify.com/v1"+path, { headers:{ Authorization:"Bearer "+at }});
+  if(r.status === 429){ throw new Error("429 QUOTA_EXCEEDED — you hit the dev-mode quota bucket"); }
+  if(!r.ok) throw new Error(`Spotify ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+// ---------- iTunes preview lookup (the part that replaces deprecated preview_url) ----------
+// Returns { url, via } where via is "isrc" | "search" | null
+async function itunesByIsrc(isrc){
+  if(!isrc) return null;
+  const r = await fetch(`https://itunes.apple.com/lookup?isrc=${encodeURIComponent(isrc)}&entity=song&limit=5`);
+  if(!r.ok) return null;
+  const j = await r.json();
+  return j.results?.find(x => x.previewUrl)?.previewUrl || null;
+}
+async function itunesBySearch(name, artist){
+  const term = encodeURIComponent(`${name} ${artist}`);
+  const r = await fetch(`https://itunes.apple.com/search?term=${term}&entity=song&limit=5`);
+  if(!r.ok) return null;
+  const j = await r.json();
+  return j.results?.find(x => x.previewUrl)?.previewUrl || null;
+}
+async function itunesPreview(isrc, name, artist){
+  try {
+    const byIsrc = await itunesByIsrc(isrc);
+    if(byIsrc) return { url: byIsrc, via: "isrc" };
+    const bySearch = await itunesBySearch(name, artist);
+    if(bySearch) return { url: bySearch, via: "search" };
+    return { url: null, via: null };
+  } catch(e){
+    console.error("iTunes fetch threw (likely CORS/network):", e);
+    return { url: null, via: "error" };
+  }
+}
+
+// ---------- UI ----------
+const $ = id => document.getElementById(id);
+let audio = null;
+
+function playPreview(url, btn){
+  if(audio){ audio.pause(); audio = null; }
+  if(btn.dataset.playing === "1"){ btn.dataset.playing = "0"; btn.textContent = "▶ preview"; return; }
+  document.querySelectorAll("[data-playing='1']").forEach(b=>{ b.dataset.playing="0"; b.textContent="▶ preview"; });
+  audio = new Audio(url); audio.volume = 0.8; audio.play();
+  btn.dataset.playing = "1"; btn.textContent = "⏸ stop";
+  audio.onended = ()=>{ btn.dataset.playing="0"; btn.textContent="▶ preview"; };
+}
+
+async function loadPlaylists(){
+  $("status").textContent = "Loading playlists…";
+  const me = await api("/me");
+  $("who").textContent = `Logged in as ${me.display_name || me.id} (${me.product})`;
+  const data = await api("/me/playlists?limit=20");
+  $("status").textContent = "";
+  $("playlists").innerHTML = "<label>Pick a playlist to test preview matching:</label>";
+  data.items.forEach(pl=>{
+    const b = document.createElement("button");
+    b.className = "secondary"; b.style.margin = "0 6px 6px 0";
+    b.textContent = `${pl.name} (${pl.tracks.total})`;
+    b.onclick = ()=> loadTracks(pl.id, pl.name);
+    $("playlists").appendChild(b);
+  });
+}
+
+async function loadTracks(id, name){
+  $("tracks").innerHTML = "";
+  $("status").textContent = `Loading "${name}" and matching previews via iTunes…`;
+  const data = await api(`/playlists/${id}/tracks?limit=25`);
+  $("status").textContent = "";
+  let matched = 0, total = 0, viaIsrc = 0, viaSearch = 0, noIsrc = 0, errors = 0;
+  console.log("First raw track object from Spotify:", data.items[0]?.track);
+  for(const it of data.items){
+    const t = it.track; if(!t) continue; total++;
+    const div = document.createElement("div"); div.className = "track";
+    const img = (t.album?.images||[]).slice(-1)[0]?.url || "";
+    div.innerHTML = `
+      <img src="${img}" alt="" />
+      <div class="meta">
+        <div class="t"></div><div class="a"></div>
+      </div>
+      <span class="pill wait">checking…</span>`;
+    div.querySelector(".t").textContent = t.name;
+    div.querySelector(".a").textContent = t.artists.map(a=>a.name).join(", ");
+    $("tracks").appendChild(div);
+
+    const pill = div.querySelector(".pill");
+    const isrc = t.external_ids?.isrc;
+    if(!isrc) noIsrc++;
+    const primaryArtist = t.artists?.[0]?.name || "";
+    const { url, via } = await itunesPreview(isrc, t.name, primaryArtist);
+    if(url){
+      matched++;
+      if(via === "isrc") viaIsrc++; else if(via === "search") viaSearch++;
+      pill.className = "pill ok"; pill.textContent = via === "isrc" ? "isrc ✓" : "search ✓";
+      const play = document.createElement("button");
+      play.textContent = "▶ preview"; play.style.marginLeft="8px"; play.dataset.playing="0";
+      play.onclick = ()=> playPreview(url, play);
+      div.appendChild(play);
+    } else {
+      if(via === "error") errors++;
+      pill.className = "pill no";
+      pill.textContent = via === "error" ? "fetch error" : (isrc ? "no match" : "no isrc");
+    }
+  }
+  $("status").innerHTML = `<b>${matched}/${total}</b> matched — ` +
+    `${viaIsrc} by ISRC, ${viaSearch} by name search. ` +
+    `${noIsrc} track(s) had no ISRC from Spotify.` +
+    (errors ? ` <b style="color:#f87171">${errors} fetch error(s) — likely CORS; check the console.</b>` : ``);
+}
+
+// ---------- boot ----------
+async function boot(){
+  const params = new URLSearchParams(location.search);
+  if(params.get("code")){
+    try { await exchangeCode(params.get("code")); }
+    catch(e){ alert(e.message); }
+    history.replaceState({}, "", redirectUri); // clean the URL
+  }
+  if(params.get("error")){ alert("Spotify auth error: " + params.get("error")); history.replaceState({},"",redirectUri); }
+
+  const savedCid = localStorage.getItem("poc_cid");
+  if(savedCid) $("clientId").value = savedCid;
+
+  if(await token()){
+    $("setup").style.display = "none";
+    $("app").style.display = "block";
+    try { await loadPlaylists(); }
+    catch(e){ $("status").textContent = e.message; }
+  }
+}
+
+$("loginBtn").onclick = login;
+$("logoutBtn").onclick = ()=>{ T.clear(); localStorage.removeItem("poc_verifier"); location.href = redirectUri; };
+boot();
+</script>
+</body>
+</html>

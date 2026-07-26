@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spotify Swiper — PoC</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2230; --border: #2a3038;
+    --text: #e6edf3; --muted: #8b949e; --accent: #1db954; --accent2: #3b82f6;
+    --danger: #f85149; --warn: #d29922; --ok: #2ea043;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  a { color: var(--accent2); }
+  header {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+  section.card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  section.card > h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px; cursor: pointer; font-size: 13px;
+  }
+  button:hover { border-color: #3d4653; }
+  button.primary { background: var(--accent); color: #05220f; border-color: transparent; font-weight: 600; }
+  button.danger { color: var(--danger); border-color: #5a2626; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  input[type=text] {
+    background: #0b0f14; color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; width: 100%; font: inherit;
+  }
+  label.field { display: block; margin-bottom: 10px; }
+  label.field > span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  code { background: #0b0f14; border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .muted { color: var(--muted); }
+  .hidden { display: none !important; }
+
+  /* playlist list */
+  ul.playlists { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow: auto; }
+  ul.playlists li {
+    display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer;
+  }
+  ul.playlists li:hover { background: var(--panel2); }
+  ul.playlists img { width: 40px; height: 40px; border-radius: 4px; object-fit: cover; background: #000; }
+  ul.playlists .pl-name { flex: 1; min-width: 0; }
+  ul.playlists .pl-name b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  ul.playlists .pl-meta { font-size: 12px; color: var(--muted); }
+  .src-badge { font-size: 10px; background: var(--accent); color: #05220f; border-radius: 4px; padding: 1px 6px; font-weight: 700; }
+  .tgt-key { font-size: 12px; font-weight: 700; background: var(--accent2); color: #041024; border-radius: 6px; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; }
+
+  /* diagnostics */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); gap: 10px; }
+  .stat { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .stat .n { font-size: 22px; font-weight: 700; }
+  .stat .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .stat.good .n { color: var(--ok); }
+  .stat.bad .n { color: var(--danger); }
+
+  table.tracks { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.tracks th, table.tracks td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  table.tracks th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  .pill { font-size: 11px; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--border); white-space: nowrap; }
+  .pill.search { color: var(--ok); border-color: #1f5a30; }
+  .pill.isrc { color: var(--accent2); border-color: #244a7a; }
+  .pill.nomatch { color: var(--danger); border-color: #5a2626; }
+  .pill.err { color: var(--warn); border-color: #5a4a1f; }
+  .mini { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+
+  /* focus view */
+  .focus { display: flex; gap: 20px; align-items: center; }
+  .focus img { width: 160px; height: 160px; border-radius: 10px; object-fit: cover; background: #000; }
+  .focus .ftitle { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+  .focus .fartist { color: var(--muted); font-size: 15px; }
+  .focus .fpos { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .kbd { font-size: 11px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; background: var(--panel2); }
+
+  /* toast */
+  #toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
+  .toast { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; gap: 10px; align-items: center; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
+  .toast.err { border-color: #5a2626; }
+
+  #quota-banner { background: #3a2a0a; border: 1px solid #5a4a1f; color: var(--warn); padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; }
+  #log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: #0b0f14; border: 1px solid var(--border); border-radius: 8px; padding: 10px; max-height: 180px; overflow: auto; white-space: pre-wrap; color: #9fb0c0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎧 Spotify Swiper</h1>
+  <span class="tag">proof of concept</span>
+  <span class="tag">iTunes preview · search-primary</span>
+  <span id="account" class="tag hidden"></span>
+  <span style="flex:1"></span>
+  <button id="btn-reset" class="danger hidden">Reset auth</button>
+</header>
+
+<main>
+  <div id="quota-banner" class="hidden">⚠️ Spotify returned <b>429 QUOTA_EXCEEDED</b> (dev-mode shared bucket). Slow down / try again shortly.</div>
+
+  <!-- SETUP / AUTH -->
+  <section class="card" id="setup">
+    <h2>1 · Connect</h2>
+    <p class="muted" style="margin-top:0">
+      This runs entirely in your browser (Authorization Code + PKCE, no backend).
+      Register the exact redirect URI below in your Spotify app dashboard
+      (Settings → and add yourself under User Management — dev-mode allowlist).
+    </p>
+    <label class="field">
+      <span>Spotify Client ID</span>
+      <input id="client-id" type="text" placeholder="paste your app's Client ID" autocomplete="off" spellcheck="false" />
+    </label>
+    <label class="field">
+      <span>Redirect URI to register (must match <b>exactly</b>)</span>
+      <div class="row"><code id="redirect-uri"></code><button class="mini" id="btn-copy-redirect">copy</button></div>
+      <span id="redirect-warn" class="hidden" style="color:var(--warn)">You are not on a loopback/HTTPS origin. Serve this file at
+        <code>http://127.0.0.1:8888/spotify-preview-poc.html</code> (not <code>localhost</code>).</span>
+    </label>
+    <div class="row">
+      <button id="btn-login" class="primary">Log in with Spotify</button>
+      <span id="auth-status" class="muted"></span>
+    </div>
+  </section>
+
+  <div class="grid">
+    <!-- PLAYLISTS -->
+    <section class="card hidden" id="playlists-card">
+      <h2>2 · Playlists</h2>
+      <p class="muted" style="margin-top:0">Click a playlist to load it as the <span class="src-badge">SOURCE</span>. Toggle
+        others as <span class="tgt-key">1</span>…<span class="tgt-key">9</span> targets (hotkeys add the current track).</p>
+      <div class="row" style="margin-bottom:8px">
+        <button class="mini" id="btn-reload-playlists">↻ reload</button>
+      </div>
+      <ul class="playlists" id="playlist-list"></ul>
+    </section>
+
+    <!-- FOCUS -->
+    <section class="card hidden" id="focus-card">
+      <h2>3 · Focus &amp; sort <span class="muted" style="text-transform:none;letter-spacing:0">— <span class="kbd">←</span> <span class="kbd">→</span> nav · <span class="kbd">Space</span> play · <span class="kbd">1-9</span> add to target</span></h2>
+      <div id="focus-empty" class="muted">Pick a source playlist to begin.</div>
+      <div id="focus-view" class="hidden">
+        <div class="focus">
+          <img id="f-cover" alt="cover" />
+          <div style="flex:1;min-width:0">
+            <p class="ftitle" id="f-title">—</p>
+            <div class="fartist" id="f-artist">—</div>
+            <div class="row" style="margin-top:12px">
+              <button id="f-prev" class="mini">← prev</button>
+              <button id="f-play" class="mini">▶ play preview</button>
+              <button id="f-next" class="mini">next →</button>
+              <span id="f-preview-via" class="pill"></span>
+            </div>
+            <audio id="f-audio" preload="auto"></audio>
+            <div class="fpos" id="f-pos"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- DIAGNOSTICS -->
+  <section class="card hidden" id="diag-card">
+    <h2>4 · Preview match diagnostic <span class="muted" style="text-transform:none;letter-spacing:0">— reproduces & closes the “0/25” question on your real library</span></h2>
+    <div class="row" style="margin-bottom:12px">
+      <button id="btn-run-diag" class="primary">Resolve previews for source tracks</button>
+      <span id="diag-status" class="muted"></span>
+    </div>
+    <div id="diag-stats" class="stat-grid hidden"></div>
+    <div style="max-height:340px;overflow:auto;margin-top:12px">
+      <table class="tracks"><tbody id="diag-rows"></tbody></table>
+    </div>
+  </section>
+
+  <!-- LOG -->
+  <section class="card">
+    <h2>Log</h2>
+    <div id="log"></div>
+  </section>
+</main>
+
+<div id="toasts"></div>
+
+<script>
+"use strict";
+/* ============================================================================
+ * Spotify Swiper — single-file PoC
+ * Validates: PKCE OAuth · playlist read · iTunes preview resolution (SEARCH-
+ * primary; ISRC lookup is dead) · focus/keyboard nav · add-to-target (write).
+ * ========================================================================== */
+
+const SCOPES = [
+  "playlist-read-private", "playlist-read-collaborative",
+  "playlist-modify-public", "playlist-modify-private",
+  "user-read-private",   // needed for /me `product` (the Premium check)
+].join(" ");
+
+const AUTH_URL  = "https://accounts.spotify.com/authorize";
+const TOKEN_URL = "https://accounts.spotify.com/api/token";
+const API       = "https://api.spotify.com/v1";
+const LS = {
+  clientId: "sw.clientId", verifier: "sw.pkce_verifier", state: "sw.pkce_state",
+  tokens: "sw.tokens",
+};
+
+const REDIRECT_URI = location.origin + location.pathname;
+
+// ---- tiny DOM helpers -------------------------------------------------------
+const $ = (sel) => document.querySelector(sel);
+const el = (id) => document.getElementById(id);
+function log(...args) {
+  const line = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
+  const box = el("log");
+  box.textContent += line + "\n";
+  box.scrollTop = box.scrollHeight;
+  console.log("[swiper]", ...args);
+}
+function show(node, on = true) { node.classList.toggle("hidden", !on); }
+
+// ---- PKCE -------------------------------------------------------------------
+function b64url(bytes) {
+  let s = btoa(String.fromCharCode(...new Uint8Array(bytes)));
+  return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function randomVerifier(len = 64) {
+  const arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  // map to unreserved chars per PKCE spec
+  const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+  return Array.from(arr, b => charset[b % charset.length]).join("");
+}
+async function challengeFrom(verifier) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return b64url(digest);
+}
+
+// ---- token storage ----------------------------------------------------------
+function getTokens() { try { return JSON.parse(localStorage.getItem(LS.tokens) || "null"); } catch { return null; } }
+function setTokens(t) { localStorage.setItem(LS.tokens, JSON.stringify(t)); }
+function clearAuth() { [LS.verifier, LS.state, LS.tokens].forEach(k => localStorage.removeItem(k)); }
+
+async function beginLogin() {
+  const clientId = el("client-id").value.trim();
+  if (!clientId) { el("auth-status").textContent = "Enter a Client ID first."; return; }
+  localStorage.setItem(LS.clientId, clientId);
+  const verifier = randomVerifier();
+  const state = randomVerifier(16);
+  localStorage.setItem(LS.verifier, verifier);
+  localStorage.setItem(LS.state, state);
+  const params = new URLSearchParams({
+    client_id: clientId, response_type: "code", redirect_uri: REDIRECT_URI,
+    scope: SCOPES, code_challenge_method: "S256",
+    code_challenge: await challengeFrom(verifier), state,
+  });
+  location.assign(`${AUTH_URL}?${params}`);
+}
+
+async function handleRedirect() {
+  const q = new URLSearchParams(location.search);
+  const err = q.get("error");
+  if (err) { el("auth-status").textContent = "Auth error: " + err; log("auth error:", err); cleanUrl(); return; }
+  const code = q.get("code");
+  if (!code) return;
+  if (q.get("state") !== localStorage.getItem(LS.state)) {
+    el("auth-status").textContent = "State mismatch — aborting."; log("state mismatch"); cleanUrl(); return;
+  }
+  const clientId = localStorage.getItem(LS.clientId);
+  const verifier = localStorage.getItem(LS.verifier);
+  const body = new URLSearchParams({
+    client_id: clientId, grant_type: "authorization_code", code,
+    redirect_uri: REDIRECT_URI, code_verifier: verifier,
+  });
+  const res = await fetch(TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
+  const data = await res.json();
+  cleanUrl();
+  if (!res.ok) { el("auth-status").textContent = "Token exchange failed."; log("token exchange failed:", data); return; }
+  storeTokenResponse(data);
+  log("logged in ✓ (token exchange ok)");
+}
+
+function storeTokenResponse(data, prevRefresh) {
+  setTokens({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token || prevRefresh || (getTokens() && getTokens().refresh_token),
+    expires_at: Date.now() + (data.expires_in * 1000),
+  });
+}
+function cleanUrl() { history.replaceState({}, "", REDIRECT_URI); }
+
+async function ensureToken() {
+  const t = getTokens();
+  if (!t) return null;
+  if (Date.now() < t.expires_at - 30000) return t.access_token;
+  // refresh
+  const clientId = localStorage.getItem(LS.clientId);
+  const body = new URLSearchParams({ client_id: clientId, grant_type: "refresh_token", refresh_token: t.refresh_token });
+  const res = await fetch(TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
+  const data = await res.json();
+  if (!res.ok) { log("refresh failed:", data); return null; }
+  storeTokenResponse(data, t.refresh_token);
+  log("token refreshed ✓");
+  return getTokens().access_token;
+}
+
+// ---- Spotify API wrapper (with 429 handling) --------------------------------
+async function spotify(path, opts = {}) {
+  const token = await ensureToken();
+  if (!token) throw new Error("not authenticated");
+  const res = await fetch(path.startsWith("http") ? path : API + path, {
+    ...opts,
+    headers: { Authorization: "Bearer " + token, "Content-Type": "application/json", ...(opts.headers || {}) },
+  });
+  if (res.status === 429) {
+    show(el("quota-banner"), true);
+    const retry = res.headers.get("retry-after");
+    log("429 QUOTA_EXCEEDED, retry-after:", retry);
+    throw new Error("quota");
+  }
+  show(el("quota-banner"), false);
+  if (res.status === 204) return null;
+  const data = await res.json().catch(() => null);
+  if (!res.ok) { log("API error", res.status, JSON.stringify(data)); throw new Error("api " + res.status); }
+  return data;
+}
+
+// ---- iTunes preview resolver (SEARCH-PRIMARY) -------------------------------
+// The ISRC lookup endpoint currently returns 0 results for every ISRC, so name
+// search is primary. ISRC is attempted only for the diagnostic breakdown.
+function cleanTitle(name) {
+  return name
+    .replace(/\([^)]*\)/g, " ")           // (feat. …), (Remastered), (Live) …
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/\s*-\s*(remaster|remastered|live|mono|stereo|radio edit|single version|deluxe|bonus).*$/i, " ")
+    .replace(/\s+/g, " ").trim();
+}
+async function itunesSearch(term) {
+  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=song&limit=1`;
+  const d = await (await fetch(url)).json();
+  return (d.resultCount > 0 && d.results[0].previewUrl) ? d.results[0].previewUrl : null;
+}
+async function itunesIsrc(isrc) {
+  const url = `https://itunes.apple.com/lookup?isrc=${encodeURIComponent(isrc)}&entity=song&limit=1`;
+  const d = await (await fetch(url)).json();
+  return (d.resultCount > 0 && d.results[0].previewUrl) ? d.results[0].previewUrl : null;
+}
+
+const previewCache = new Map();  // trackId -> {url, via}
+async function resolvePreview(track, { probeIsrc = false } = {}) {
+  if (previewCache.has(track.id)) return previewCache.get(track.id);
+  const artist = (track.artists && track.artists[0] && track.artists[0].name) || "";
+  const isrc = track.external_ids && track.external_ids.isrc;
+  const out = { url: null, via: null, isrc, isrcMatched: false, error: null };
+  try {
+    // diagnostic: does ISRC lookup work at all? (expected: no)
+    if (probeIsrc && isrc) {
+      const u = await itunesIsrc(isrc);
+      if (u) { out.isrcMatched = true; out.url = u; out.via = "isrc"; }
+    }
+    // primary path: name + artist search
+    if (!out.url) {
+      let u = await itunesSearch(`${artist} ${track.name}`);
+      if (!u) u = await itunesSearch(`${artist} ${cleanTitle(track.name)}`);  // cleaned retry
+      if (u) { out.url = u; out.via = "search"; }
+    }
+  } catch (e) {
+    out.error = String(e);
+  }
+  previewCache.set(track.id, out);
+  return out;
+}
+
+// ============================================================================
+// APP STATE
+// ============================================================================
+const state = {
+  me: null,
+  playlists: [],
+  sourceId: null,
+  tracks: [],          // [{ track }]
+  targets: [],         // [{ id, name, key }]
+  idx: 0,
+};
+
+// ---- render: account --------------------------------------------------------
+async function loadMe() {
+  state.me = await spotify("/me");
+  const badge = el("account");
+  badge.textContent = `${state.me.display_name || state.me.id} · ${state.me.product || "?"}`;
+  show(badge, true);
+  if (state.me.product !== "premium") log("note: account is not Premium — iTunes previews still work; Web Playback SDK (full-track fallback) would not.");
+}
+
+// ---- render: playlists ------------------------------------------------------
+async function loadPlaylists() {
+  const data = await spotify("/me/playlists?limit=50");
+  state.playlists = data.items || [];
+  renderPlaylists();
+  log(`loaded ${state.playlists.length} playlists`);
+}
+function renderPlaylists() {
+  const ul = el("playlist-list"); ul.innerHTML = "";
+  state.playlists.forEach(pl => {
+    const li = document.createElement("li");
+    const img = pl.images && pl.images[0] ? pl.images[0].url : "";
+    const isSource = pl.id === state.sourceId;
+    const target = state.targets.find(t => t.id === pl.id);
+    li.innerHTML = `
+      <img src="${img}" alt="" />
+      <div class="pl-name"><b>${escapeHtml(pl.name)}</b><span class="pl-meta">${pl.tracks.total} tracks</span></div>
+      ${isSource ? '<span class="src-badge">SOURCE</span>' : ''}
+      ${target ? `<span class="tgt-key">${target.key}</span>` : ''}
+      <button class="mini btn-src">source</button>
+      <button class="mini btn-tgt">${target ? 'untarget' : 'target'}</button>`;
+    li.querySelector(".btn-src").onclick = (e) => { e.stopPropagation(); setSource(pl); };
+    li.querySelector(".btn-tgt").onclick = (e) => { e.stopPropagation(); toggleTarget(pl); };
+    ul.appendChild(li);
+  });
+}
+function toggleTarget(pl) {
+  const i = state.targets.findIndex(t => t.id === pl.id);
+  if (i >= 0) state.targets.splice(i, 1);
+  else {
+    if (state.targets.length >= 9) { toast("Max 9 targets (keys 1–9)", true); return; }
+    state.targets.push({ id: pl.id, name: pl.name, key: null });
+  }
+  state.targets.forEach((t, n) => t.key = String(n + 1));  // renumber 1..9
+  renderPlaylists();
+}
+
+async function setSource(pl) {
+  state.sourceId = pl.id;
+  log(`source = "${pl.name}" (${pl.tracks.total} tracks)`);
+  renderPlaylists();
+  // NOTE: no fields= filter — that was the doc's suspect #1; full objects carry external_ids.
+  const data = await spotify(`/playlists/${pl.id}/tracks?limit=50`);
+  state.tracks = (data.items || []).filter(it => it.track && it.track.id);
+  state.idx = 0;
+  if (state.tracks[0]) console.log("[swiper] first raw track object:", state.tracks[0].track);
+  show(el("diag-card"), true);
+  renderFocus();
+}
+
+// ---- render: focus ----------------------------------------------------------
+function currentTrack() { return state.tracks[state.idx] && state.tracks[state.idx].track; }
+async function renderFocus() {
+  const t = currentTrack();
+  show(el("focus-empty"), !t);
+  show(el("focus-view"), !!t);
+  if (!t) return;
+  el("f-cover").src = (t.album.images[0] && t.album.images[0].url) || "";
+  el("f-title").textContent = t.name;
+  el("f-artist").textContent = t.artists.map(a => a.name).join(", ");
+  el("f-pos").textContent = `Track ${state.idx + 1} / ${state.tracks.length}`;
+  const via = el("f-preview-via"); via.textContent = "resolving…"; via.className = "pill";
+  const pv = await resolvePreview(t);
+  if (pv.url) { via.textContent = `preview via ${pv.via}`; via.className = "pill " + pv.via; }
+  else { via.textContent = pv.error ? "fetch error" : "no preview"; via.className = "pill " + (pv.error ? "err" : "nomatch"); }
+  autoPlayPreview(pv.url);
+}
+function autoPlayPreview(url) {
+  const a = el("f-audio");
+  if (!url) { a.pause(); a.removeAttribute("src"); return; }
+  a.src = url; a.currentTime = 0; a.play().catch(() => {/* autoplay may need a gesture */});
+  el("f-play").textContent = "⏸ pause";
+}
+function togglePlay() {
+  const a = el("f-audio");
+  if (!a.src) return;
+  if (a.paused) { a.play(); el("f-play").textContent = "⏸ pause"; }
+  else { a.pause(); el("f-play").textContent = "▶ play preview"; }
+}
+function nav(delta) {
+  const n = state.tracks.length; if (!n) return;
+  state.idx = (state.idx + delta + n) % n;
+  renderFocus();
+}
+
+// ---- write path: add current track to a target ------------------------------
+async function addToTarget(key) {
+  const t = currentTrack(); if (!t) return;
+  const tgt = state.targets.find(x => x.key === key);
+  if (!tgt) { toast(`No target on key ${key}`, true); return; }
+  const uri = `spotify:track:${t.id}`;
+  try {
+    await spotify(`/playlists/${tgt.id}/tracks`, { method: "POST", body: JSON.stringify({ uris: [uri] }) });
+    toast(`Added “${t.name}” → ${tgt.name}`, false, async () => {
+      await spotify(`/playlists/${tgt.id}/tracks`, { method: "DELETE", body: JSON.stringify({ tracks: [{ uri }] }) });
+      toast(`Undid: removed from ${tgt.name}`);
+    });
+    log(`+ added ${t.name} to ${tgt.name}`);
+    nav(1); // auto-advance
+  } catch (e) {
+    toast(`Add failed (${e.message})`, true);
+  }
+}
+
+// ---- diagnostic run ---------------------------------------------------------
+async function runDiagnostic() {
+  if (!state.tracks.length) { toast("Load a source playlist first", true); return; }
+  const rows = el("diag-rows"); rows.innerHTML = "";
+  const statusEl = el("diag-status");
+  let matched = 0, viaIsrc = 0, viaSearch = 0, noIsrc = 0, errors = 0;
+  const total = state.tracks.length;
+  for (let i = 0; i < total; i++) {
+    const t = state.tracks[i].track;
+    statusEl.textContent = `resolving ${i + 1}/${total}…`;
+    previewCache.delete(t.id);                          // force fresh probe
+    const pv = await resolvePreview(t, { probeIsrc: true });
+    if (!pv.isrc) noIsrc++;
+    if (pv.error) errors++;
+    if (pv.url) { matched++; if (pv.via === "isrc") viaIsrc++; else viaSearch++; }
+    rows.appendChild(diagRow(t, pv));
+    await new Promise(r => setTimeout(r, 120));          // be gentle on iTunes
+  }
+  statusEl.textContent = `done`;
+  renderStats({ total, matched, viaIsrc, viaSearch, noIsrc, errors });
+  log(`DIAGNOSTIC: ${matched}/${total} matched (search ${viaSearch}, isrc ${viaIsrc}) · noIsrc ${noIsrc} · fetchErrors ${errors}`);
+}
+function diagRow(t, pv) {
+  const tr = document.createElement("tr");
+  let pill;
+  if (pv.error) pill = '<span class="pill err">fetch error</span>';
+  else if (pv.via === "isrc") pill = '<span class="pill isrc">isrc ✓</span>';
+  else if (pv.via === "search") pill = '<span class="pill search">search ✓</span>';
+  else pill = '<span class="pill nomatch">no match</span>';
+  const isrcPill = pv.isrc ? '' : ' <span class="pill nomatch">no isrc</span>';
+  tr.innerHTML = `<td>${escapeHtml(t.name)}</td><td class="muted">${escapeHtml(t.artists[0]?.name || "")}</td><td>${pill}${isrcPill}</td>
+    <td>${pv.url ? `<button class="mini">▶</button>` : ""}</td>`;
+  if (pv.url) tr.querySelector("button").onclick = () => { const a = new Audio(pv.url); a.play(); };
+  return tr;
+}
+function renderStats(s) {
+  const box = el("diag-stats"); show(box, true);
+  const rate = Math.round(100 * s.matched / s.total);
+  box.innerHTML = `
+    <div class="stat ${rate >= 80 ? 'good' : 'bad'}"><div class="n">${rate}%</div><div class="l">match rate</div></div>
+    <div class="stat"><div class="n">${s.matched}/${s.total}</div><div class="l">matched</div></div>
+    <div class="stat"><div class="n">${s.viaSearch}</div><div class="l">via search</div></div>
+    <div class="stat ${s.viaIsrc === 0 ? 'bad' : ''}"><div class="n">${s.viaIsrc}</div><div class="l">via ISRC</div></div>
+    <div class="stat"><div class="n">${s.noIsrc}</div><div class="l">no ISRC field</div></div>
+    <div class="stat ${s.errors ? 'bad' : ''}"><div class="n">${s.errors}</div><div class="l">fetch errors</div></div>`;
+}
+
+// ---- toasts -----------------------------------------------------------------
+function toast(msg, isErr = false, onUndo = null) {
+  const box = el("toasts");
+  const t = document.createElement("div");
+  t.className = "toast" + (isErr ? " err" : "");
+  t.innerHTML = `<span>${escapeHtml(msg)}</span>`;
+  if (onUndo) {
+    const b = document.createElement("button"); b.className = "mini"; b.textContent = "undo";
+    b.onclick = () => { onUndo(); t.remove(); };
+    t.appendChild(b);
+  }
+  box.appendChild(t);
+  setTimeout(() => t.remove(), 5000);
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+// ---- keyboard ---------------------------------------------------------------
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+  if (!currentTrack()) return;
+  if (e.key === "ArrowRight" || e.key === "l") { nav(1); e.preventDefault(); }
+  else if (e.key === "ArrowLeft" || e.key === "h") { nav(-1); e.preventDefault(); }
+  else if (e.key === " ") { togglePlay(); e.preventDefault(); }
+  else if (/^[1-9]$/.test(e.key)) { addToTarget(e.key); e.preventDefault(); }
+});
+
+// ============================================================================
+// BOOT
+// ============================================================================
+async function boot() {
+  // redirect URI panel
+  el("redirect-uri").textContent = REDIRECT_URI;
+  const loopbackOrHttps = location.protocol === "https:" || location.hostname === "127.0.0.1";
+  show(el("redirect-warn"), !loopbackOrHttps);
+  el("client-id").value = localStorage.getItem(LS.clientId) || "";
+
+  el("btn-copy-redirect").onclick = () => navigator.clipboard.writeText(REDIRECT_URI).then(() => toast("copied"));
+  el("btn-login").onclick = beginLogin;
+  el("btn-reset").onclick = () => { clearAuth(); location.assign(REDIRECT_URI); };
+  el("btn-reload-playlists").onclick = () => loadPlaylists().catch(err => log("reload err:", err.message));
+  el("btn-run-diag").onclick = () => runDiagnostic().catch(err => log("diag err:", err.message));
+  el("f-prev").onclick = () => nav(-1);
+  el("f-next").onclick = () => nav(1);
+  el("f-play").onclick = togglePlay;
+
+  await handleRedirect();
+
+  if (getTokens()) {
+    show(el("btn-reset"), true);
+    el("auth-status").textContent = "authenticated ✓";
+    try {
+      await loadMe();
+      await loadPlaylists();
+      show(el("playlists-card"), true);
+      show(el("focus-card"), true);
+    } catch (e) { log("post-login load failed:", e.message); }
+  }
+}
+boot();
+</script>
+</body>
+</html>
