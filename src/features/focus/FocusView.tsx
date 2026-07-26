@@ -1,0 +1,179 @@
+import { useEffect, useRef } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { ChevronLeft, ChevronRight, Music2, Pause, Play } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useSessionStore } from "@/store/useSessionStore";
+import { useLibraryStore } from "@/store/useLibraryStore";
+import { usePlayerStore } from "@/store/usePlayerStore";
+import { resolvePreview } from "@/lib/preview";
+
+export function FocusView() {
+  const tracks = useSessionStore((s) => s.tracks);
+  const index = useSessionStore((s) => s.index);
+  const dir = useSessionStore((s) => s.dir);
+  const status = useSessionStore((s) => s.status);
+  const next = useSessionStore((s) => s.next);
+  const prev = useSessionStore((s) => s.prev);
+  const autoplay = useLibraryStore((s) => s.settings.previewAutoplay);
+
+  const playing = usePlayerStore((s) => s.playing);
+  const toggle = usePlayerStore((s) => s.toggle);
+  const load = usePlayerStore((s) => s.load);
+  const setPreviewVia = usePlayerStore((s) => s.setPreviewVia);
+
+  const track = tracks[index] ?? null;
+  const reqId = useRef(0);
+
+  const cover =
+    track?.album.images.find((i) => (i.width ?? 0) >= 300)?.url ??
+    track?.album.images[0]?.url ??
+    "";
+
+  // resolve the preview whenever the current track changes
+  useEffect(() => {
+    if (!track) {
+      load(null, false);
+      setPreviewVia("none");
+      return;
+    }
+    const id = ++reqId.current;
+    setPreviewVia("loading");
+    resolvePreview(track).then((res) => {
+      if (id !== reqId.current) return; // stale
+      setPreviewVia(res.url ? res.via : "none");
+      load(res.url, autoplay);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [track?.id]);
+
+  if (status === "loading") {
+    return (
+      <Centered>
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Loading source…</p>
+      </Centered>
+    );
+  }
+
+  if (status === "ready" && tracks.length === 0) {
+    return (
+      <Centered>
+        <Music2 className="h-8 w-8 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">
+          Nothing to sort in this source.
+        </p>
+      </Centered>
+    );
+  }
+
+  if (!track) {
+    return (
+      <Centered>
+        <Music2 className="h-8 w-8 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">
+          Pick a source to start sorting.
+        </p>
+      </Centered>
+    );
+  }
+
+  return (
+    <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
+      {/* blurred album-art backdrop */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <AnimatePresence>
+          {cover && (
+            <motion.img
+              key={cover}
+              src={cover}
+              aria-hidden
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.9, ease: "easeInOut" }}
+              className="absolute left-1/2 top-1/2 h-[150%] w-[150%] -translate-x-1/2 -translate-y-1/2 object-cover blur-[100px] saturate-[1.4]"
+            />
+          )}
+        </AnimatePresence>
+        <div className="absolute inset-0 bg-background/75" />
+        <div className="absolute inset-0 bg-gradient-to-b from-background/40 via-transparent to-background" />
+      </div>
+
+      <div className="relative z-10 flex w-full max-w-md flex-col items-center px-6">
+        <AnimatePresence mode="wait" custom={dir}>
+          <motion.div
+            key={track.id}
+            custom={dir}
+            initial={{ opacity: 0, x: dir * 56 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: dir * -56 }}
+            transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+            className="flex w-full flex-col items-center"
+          >
+            <div className="aspect-square w-full max-w-[clamp(160px,38vh,340px)] overflow-hidden rounded-2xl border border-white/10 shadow-[0_28px_90px_-28px_rgba(0,0,0,0.85)]">
+              {cover ? (
+                <img
+                  src={cover}
+                  alt=""
+                  className="h-full w-full object-cover drag-none"
+                  draggable={false}
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center bg-secondary">
+                  <Music2 className="h-10 w-10 text-muted-foreground" />
+                </div>
+              )}
+            </div>
+
+            <h1 className="mt-5 line-clamp-2 text-center text-3xl font-bold tracking-tight">
+              {track.name}
+            </h1>
+            <p className="mt-1 text-center text-lg text-muted-foreground">
+              {track.artists.map((a) => a.name).join(", ")}
+            </p>
+            <p className="mt-0.5 text-center text-sm text-muted-foreground/70">
+              {track.album.name}
+            </p>
+          </motion.div>
+        </AnimatePresence>
+
+        {/* transport */}
+        <div className="mt-6 flex items-center gap-3">
+          <Button
+            variant="secondary"
+            size="icon"
+            onClick={prev}
+            aria-label="Previous"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+          <Button
+            size="icon"
+            className="h-14 w-14 rounded-full"
+            onClick={toggle}
+            aria-label="Play/pause"
+          >
+            {playing ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+          </Button>
+          <Button
+            variant="secondary"
+            size="icon"
+            onClick={next}
+            aria-label="Next"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Centered({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3">
+      {children}
+    </div>
+  );
+}
