@@ -16,7 +16,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { formatTime } from "@/lib/utils";
+import { cn, formatTime } from "@/lib/utils";
 import { usePlayerStore } from "@/store/usePlayerStore";
 import { useSessionStore } from "@/store/useSessionStore";
 
@@ -33,6 +33,7 @@ export function PlayerBar() {
     currentTime,
     duration,
     volume,
+    previewVia,
     toggle,
     seekFraction,
     setVolume,
@@ -40,6 +41,7 @@ export function PlayerBar() {
 
   const cover = track?.album.images.at(-1)?.url ?? track?.album.images[0]?.url;
   const pct = duration ? (currentTime / duration) * 100 : 0;
+  const noPreview = previewVia === "none";
 
   const fs = useFullscreen();
 
@@ -51,14 +53,31 @@ export function PlayerBar() {
           <img
             src={cover}
             alt=""
-            className="h-11 w-11 rounded-md object-cover drag-none border border-border"
+            className={cn(
+              "h-11 w-11 rounded-md border border-border object-cover drag-none transition-[filter,opacity] duration-300",
+              noPreview && "opacity-70 grayscale",
+            )}
             draggable={false}
           />
         ) : (
           <div className="h-11 w-11 rounded-md bg-secondary" />
         )}
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{track?.name ?? "—"}</p>
+          <p className="truncate text-sm font-medium">
+            {track ? (
+              <a
+                href={`https://open.spotify.com/track/${track.id}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Open in Spotify"
+                className="cursor-pointer text-inherit no-underline"
+              >
+                {track.name}
+              </a>
+            ) : (
+              "—"
+            )}
+          </p>
           <p className="truncate text-xs text-muted-foreground">
             {track?.artists.map((a) => a.name).join(", ") ?? ""}
           </p>
@@ -80,7 +99,8 @@ export function PlayerBar() {
           size="icon"
           variant="secondary"
           onClick={toggle}
-          disabled={!track}
+          disabled={!track || noPreview}
+          title={noPreview ? "No preview available" : undefined}
           aria-label="Play/pause"
         >
           {playing ? (

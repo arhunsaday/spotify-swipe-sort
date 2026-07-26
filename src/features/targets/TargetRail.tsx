@@ -87,14 +87,6 @@ function TargetRow({ tg }: { tg: Target }) {
         isIn && "border-success/30 bg-success/5",
       )}
     >
-      <button
-        onPointerDown={(e) => controls.start(e)}
-        className="shrink-0 cursor-grab touch-none text-muted-foreground/30 transition-colors hover:text-muted-foreground active:cursor-grabbing"
-        aria-label="Drag to reorder"
-      >
-        <GripVertical className="h-4 w-4" />
-      </button>
-
       {editing ? (
         <input
           autoFocus
@@ -150,6 +142,14 @@ function TargetRow({ tg }: { tg: Target }) {
           )}
         </div>
         {isIn && <Check className="h-4 w-4 shrink-0 text-success" />}
+      </button>
+
+      <button
+        onPointerDown={(e) => controls.start(e)}
+        className="shrink-0 cursor-grab touch-none text-muted-foreground/30 transition-colors hover:text-muted-foreground active:cursor-grabbing"
+        aria-label="Drag to reorder"
+      >
+        <GripVertical className="h-4 w-4" />
       </button>
     </Reorder.Item>
   );

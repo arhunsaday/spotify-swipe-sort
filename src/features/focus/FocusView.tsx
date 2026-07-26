@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, Music2, Pause, Play } from "lucide-react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useLibraryStore } from "@/store/useLibraryStore";
 import { usePlayerStore } from "@/store/usePlayerStore";
@@ -21,8 +22,10 @@ export function FocusView() {
   const toggle = usePlayerStore((s) => s.toggle);
   const load = usePlayerStore((s) => s.load);
   const setPreviewVia = usePlayerStore((s) => s.setPreviewVia);
+  const previewVia = usePlayerStore((s) => s.previewVia);
 
   const track = tracks[index] ?? null;
+  const noPreview = previewVia === "none";
   const reqId = useRef(0);
 
   const cover =
@@ -111,7 +114,12 @@ export function FocusView() {
             transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
             className="flex w-full flex-col items-center"
           >
-            <div className="aspect-square w-full max-w-[clamp(160px,38vh,340px)] overflow-hidden rounded-2xl border border-white/10 shadow-[0_28px_90px_-28px_rgba(0,0,0,0.85)]">
+            <div
+              className={cn(
+                "aspect-square w-full max-w-[clamp(160px,38vh,340px)] overflow-hidden rounded-2xl border border-white/10 shadow-[0_28px_90px_-28px_rgba(0,0,0,0.85)] transition-[filter,opacity] duration-300",
+                noPreview && "opacity-70 grayscale",
+              )}
+            >
               {cover ? (
                 <img
                   src={cover}
@@ -127,7 +135,15 @@ export function FocusView() {
             </div>
 
             <h1 className="mt-5 line-clamp-2 text-center text-3xl font-bold tracking-tight">
-              {track.name}
+              <a
+                href={`https://open.spotify.com/track/${track.id}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Open in Spotify"
+                className="cursor-pointer text-inherit no-underline outline-none"
+              >
+                {track.name}
+              </a>
             </h1>
             <p className="mt-1 text-center text-lg text-muted-foreground">
               {track.artists.map((a) => a.name).join(", ")}
@@ -152,6 +168,8 @@ export function FocusView() {
             size="icon"
             className="h-14 w-14 rounded-full"
             onClick={toggle}
+            disabled={noPreview}
+            title={noPreview ? "No preview available" : undefined}
             aria-label="Play/pause"
           >
             {playing ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
