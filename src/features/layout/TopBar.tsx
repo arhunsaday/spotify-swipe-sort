@@ -7,11 +7,11 @@ import {
   ListMusic,
   LogOut,
   Sparkles,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Kbd } from "@/components/ui/kbd";
 import {
   Tooltip,
   TooltipContent,
@@ -34,6 +34,7 @@ export function TopBar() {
   const membership = useSessionStore((s) => s.membership);
   const baseMembership = useSessionStore((s) => s.baseMembership);
   const applyPending = useSessionStore((s) => s.applyPending);
+  const discardPending = useSessionStore((s) => s.discardPending);
 
   const targets = useLibraryStore((s) => s.targets);
   const batchMode = useLibraryStore((s) => s.settings.batchMode);
@@ -104,27 +105,41 @@ export function TopBar() {
         <span className="whitespace-nowrap text-xs text-muted-foreground tabnum">
           {total > 0 ? `${index + 1} / ${total}` : "—"}
         </span>
-        {batchMode ? (
-          pending > 0 && (
-            <Button
-              size="sm"
-              className="h-7 gap-1.5"
-              onClick={() => void applyPending()}
-            >
-              <Check className="h-3.5 w-3.5" />
-              Apply {pending}
-              <Kbd className="h-4 min-w-4 border-b-0 bg-white/15 px-1 text-[10px] text-primary-foreground">
-                ↵
-              </Kbd>
-            </Button>
-          )
-        ) : (
-          filed > 0 && (
-            <Badge variant="success" className="gap-1">
-              <Sparkles className="h-3 w-3" /> {filed} changes
-            </Badge>
-          )
-        )}
+        {batchMode
+          ? pending > 0 && (
+              <div className="flex h-7 items-center overflow-hidden rounded-md">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => void applyPending()}
+                      className="flex h-full items-center gap-1.5 bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      Apply {pending}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Apply queued changes · Enter</TooltipContent>
+                </Tooltip>
+                <div className="h-full w-px bg-primary-foreground/25" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => discardPending()}
+                      aria-label="Discard queued changes"
+                      className="flex h-full items-center bg-primary px-2 text-primary-foreground/70 transition-colors hover:bg-primary/90 hover:text-primary-foreground"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Ignore — discard queued</TooltipContent>
+                </Tooltip>
+              </div>
+            )
+          : filed > 0 && (
+              <Badge variant="success" className="gap-1">
+                <Sparkles className="h-3 w-3" /> {filed} changes
+              </Badge>
+            )}
       </div>
 
       <div className="ml-auto flex items-center gap-1">

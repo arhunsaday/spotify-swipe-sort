@@ -1,20 +1,19 @@
-import { motion } from "framer-motion";
-import { Check, ListMusic, Plus } from "lucide-react";
+import { useState } from "react";
+import { Reorder, useDragControls } from "framer-motion";
+import { Check, GripVertical, ListMusic, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { isAllowedKey } from "@/lib/hotkeys";
 import { useLibraryStore } from "@/store/useLibraryStore";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useUiStore } from "@/store/useUiStore";
+import type { Target } from "@/types";
 
 export function TargetRail() {
   const targets = useLibraryStore((s) => s.targets);
+  const reorderTargets = useLibraryStore((s) => s.reorderTargets);
   const openSetup = useUiStore((s) => s.setSetupOpen);
-  const membership = useSessionStore((s) => s.membership);
-  const perTarget = useSessionStore((s) => s.stats.perTarget);
-  const file = useSessionStore((s) => s.fileToTarget);
-  const current = useSessionStore((s) => s.tracks[s.index] ?? null);
 
   return (
     <div className="flex h-full flex-col">
@@ -43,57 +42,115 @@ export function TargetRail() {
           </Button>
         </div>
       ) : (
-        <ScrollArea className="flex-1">
-          <ul className="space-y-1 px-2 pb-4">
-            {targets.map((tg) => {
-              const isIn = current ? membership[tg.id]?.has(current.id) : false;
-              const count = perTarget[tg.id] ?? 0;
-              return (
-                <motion.li
-                  key={tg.id}
-                  whileTap={{ scale: 0.97 }}
-                  className="list-none"
-                >
-                  <button
-                    onClick={() => void file(tg.key)}
-                    disabled={!current}
-                    className={cn(
-                      "group flex w-full items-center gap-3 rounded-lg border border-transparent p-2 text-left transition-colors",
-                      "hover:border-border hover:bg-accent disabled:opacity-40",
-                      isIn && "border-success/30 bg-success/5",
-                    )}
-                  >
-                    <Kbd large>{tg.key}</Kbd>
-                    {tg.imageUrl ? (
-                      <img
-                        src={tg.imageUrl}
-                        alt=""
-                        className="h-9 w-9 shrink-0 rounded-md object-cover drag-none"
-                        draggable={false}
-                      />
-                    ) : (
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-secondary">
-                        <ListMusic className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{tg.name}</p>
-                      {count > 0 && (
-                        <p className="text-xs text-muted-foreground tabnum">
-                          +{count} this session
-                        </p>
-                      )}
-                    </div>
-                    {isIn && (
-                      <Check className="h-4 w-4 shrink-0 text-success" />
-                    )}
-                  </button>
-                </motion.li>
-              );
-            })}
-          </ul>
-        </ScrollArea>
+        <div className="scrollbar-thin flex-1 overflow-y-auto px-2 pb-4">
+          <Reorder.Group
+            axis="y"
+            values={targets}
+            onReorder={reorderTargets}
+            className="space-y-1"
+          >
+            {targets.map((tg) => (
+              <TargetRow key={tg.id} tg={tg} />
+            ))}
+          </Reorder.Group>
+        </div>
       )}
     </div>
+  );
+}
+
+function TargetRow({ tg }: { tg: Target }) {
+  const controls = useDragControls();
+  const setTargetKey = useLibraryStore((s) => s.setTargetKey);
+  const file = useSessionStore((s) => s.fileToTarget);
+  const membership = useSessionStore((s) => s.membership);
+  const perTarget = useSessionStore((s) => s.stats.perTarget);
+  const current = useSessionStore((s) => s.tracks[s.index] ?? null);
+  const [editing, setEditing] = useState(false);
+
+  const isIn = current ? membership[tg.id]?.has(current.id) : false;
+  const count = perTarget[tg.id] ?? 0;
+
+  return (
+    <Reorder.Item
+      value={tg}
+      dragListener={false}
+      dragControls={controls}
+      whileDrag={{
+        scale: 1.03,
+        backgroundColor: "hsl(var(--popover))",
+        boxShadow: "0 12px 32px -12px rgba(0,0,0,0.7)",
+      }}
+      className={cn(
+        "group flex items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1.5 transition-colors",
+        "hover:border-border hover:bg-accent",
+        isIn && "border-success/30 bg-success/5",
+      )}
+    >
+      <button
+        onPointerDown={(e) => controls.start(e)}
+        className="shrink-0 cursor-grab touch-none text-muted-foreground/30 transition-colors hover:text-muted-foreground active:cursor-grabbing"
+        aria-label="Drag to reorder"
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+
+      {editing ? (
+        <input
+          autoFocus
+          onKeyDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+            if (k === "Escape") return setEditing(false);
+            if (isAllowedKey(k)) {
+              setTargetKey(tg.id, k);
+              setEditing(false);
+            }
+          }}
+          onBlur={() => setEditing(false)}
+          className="kbd kbd-lg w-8 text-center uppercase text-primary outline-none ring-2 ring-primary"
+          aria-label={`Press a key to rebind ${tg.name}`}
+        />
+      ) : (
+        <button
+          onClick={() => setEditing(true)}
+          title="Click, then press any key to rebind"
+          className="shrink-0"
+        >
+          <Kbd large className="uppercase hover:border-primary hover:text-primary">
+            {tg.key || "–"}
+          </Kbd>
+        </button>
+      )}
+
+      <button
+        onClick={() => void file(tg.key)}
+        disabled={!current}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-40"
+      >
+        {tg.imageUrl ? (
+          <img
+            src={tg.imageUrl}
+            alt=""
+            className="h-9 w-9 shrink-0 rounded-md object-cover drag-none"
+            draggable={false}
+          />
+        ) : (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-secondary">
+            <ListMusic className="h-4 w-4 text-muted-foreground" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{tg.name}</p>
+          {count > 0 && (
+            <p className="text-xs text-muted-foreground tabnum">
+              +{count} queued
+            </p>
+          )}
+        </div>
+        {isIn && <Check className="h-4 w-4 shrink-0 text-success" />}
+      </button>
+    </Reorder.Item>
   );
 }

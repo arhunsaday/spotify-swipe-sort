@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { SpotifyPlaylist, Target } from "@/types";
 import { getMyPlaylists, LIKED_SOURCE_ID } from "@/api/spotify";
-import { HOTKEYS, MAX_TARGETS } from "@/lib/hotkeys";
+import { HOTKEYS, MAX_TARGETS, isAllowedKey } from "@/lib/hotkeys";
 
 export interface Settings {
   autoAdvance: boolean;
@@ -40,14 +40,15 @@ interface LibraryState {
   setPosition: (sourceId: string, index: number) => void;
   queueChange: (targetId: string, trackId: string, op: "add" | "remove") => void;
   clearPending: () => void;
-  /** move a target to a new index; keys are re-assigned by position. */
-  reorderTarget: (id: string, toIndex: number) => void;
-  /** rebind a target to a specific hotkey (moves it to that key's slot). */
+  /** set the full target order (drag-and-drop reorder); keys are preserved. */
+  reorderTargets: (next: Target[]) => void;
+  /** rebind a target to a specific key; swaps with whoever holds it. */
   setTargetKey: (id: string, key: string) => void;
 }
 
-function renumber(targets: Target[]): Target[] {
-  return targets.map((t, i) => ({ ...t, key: HOTKEYS[i] ?? "" }));
+function firstFreeKey(targets: Target[]): string {
+  const used = new Set(targets.map((t) => t.key));
+  return HOTKEYS.find((k) => !used.has(k)) ?? "";
 }
 
 export const useLibraryStore = create<LibraryState>()(
@@ -89,17 +90,19 @@ export const useLibraryStore = create<LibraryState>()(
           // untargeting: drop any queued changes for it too
           const pending = { ...get().pending };
           delete pending[pl.id];
-          set({
-            targets: renumber(targets.filter((t) => t.id !== pl.id)),
-            pending,
-          });
+          set({ targets: targets.filter((t) => t.id !== pl.id), pending });
         } else {
           if (targets.length >= MAX_TARGETS) return;
           set({
-            targets: renumber([
+            targets: [
               ...targets,
-              { id: pl.id, name: pl.name, imageUrl: pl.imageUrl, key: "" },
-            ]),
+              {
+                id: pl.id,
+                name: pl.name,
+                imageUrl: pl.imageUrl,
+                key: firstFreeKey(targets),
+              },
+            ],
           });
         }
       },
@@ -115,7 +118,6 @@ export const useLibraryStore = create<LibraryState>()(
         const cur = pending[targetId] ?? { add: [], remove: [] };
         let add = cur.add.filter((id) => id !== trackId);
         let remove = cur.remove.filter((id) => id !== trackId);
-        // an add cancels a queued remove and vice-versa; otherwise it's queued
         if (op === "add") {
           if (!cur.remove.includes(trackId)) add = [...add, trackId];
         } else {
@@ -128,21 +130,17 @@ export const useLibraryStore = create<LibraryState>()(
 
       clearPending: () => set({ pending: {} }),
 
-      reorderTarget: (id, toIndex) => {
-        const targets = [...get().targets];
-        const from = targets.findIndex((t) => t.id === id);
-        if (from < 0) return;
-        const to = Math.max(0, Math.min(toIndex, targets.length - 1));
-        if (to === from) return;
-        const [item] = targets.splice(from, 1);
-        targets.splice(to, 0, item);
-        set({ targets: renumber(targets) });
-      },
+      reorderTargets: (next) => set({ targets: next }),
 
       setTargetKey: (id, key) => {
-        const i = (HOTKEYS as readonly string[]).indexOf(key);
-        if (i < 0) return;
-        get().reorderTarget(id, i);
+        if (!isAllowedKey(key)) return;
+        const targets = get().targets.map((t) => ({ ...t }));
+        const target = targets.find((t) => t.id === id);
+        if (!target) return;
+        const other = targets.find((t) => t.key === key && t.id !== id);
+        if (other) other.key = target.key; // swap so no two share a key
+        target.key = key;
+        set({ targets });
       },
     }),
     {

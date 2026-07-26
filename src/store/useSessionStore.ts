@@ -70,6 +70,8 @@ interface SessionState {
   refreshMembership: () => Promise<void>;
   /** flush queued adds/removes (batch mode) as batched requests */
   applyPending: () => Promise<void>;
+  /** drop all queued (unapplied) changes, reverting to server state */
+  discardPending: () => void;
   /** rebuild the deck from allTracks using current order/filter settings */
   applyView: () => void;
   next: () => void;
@@ -149,6 +151,24 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
           membership[tg.id] = new Set();
         }
       });
+      // server truth becomes the batch baseline…
+      const base = cloneMembership(membership);
+      // …then re-apply any persisted queued changes on top (survives reloads)
+      const perTarget: Record<string, number> = {};
+      let filed = 0;
+      for (const tg of lib.targets) {
+        const p = lib.pending[tg.id];
+        if (!p) continue;
+        const s = new Set(membership[tg.id] ?? []);
+        p.add.forEach((id) => s.add(id));
+        p.remove.forEach((id) => s.delete(id));
+        membership[tg.id] = s;
+        const n = p.add.length + p.remove.length;
+        if (n) {
+          perTarget[tg.id] = n;
+          filed += n;
+        }
+      }
       const deck = buildDeck(fetched, membership);
       const pos = Math.max(
         0,
@@ -159,9 +179,9 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
         tracks: deck,
         index: Number.isFinite(pos) ? pos : 0,
         status: "ready",
-        stats: { filed: 0, perTarget: {} },
+        stats: { filed, perTarget },
         membership,
-        baseMembership: cloneMembership(membership),
+        baseMembership: base,
       });
     } catch (e) {
       set({ status: "error", error: msg(e) });
@@ -200,6 +220,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
         }
       });
       set({ baseMembership: cloneMembership(get().membership) });
+      useLibraryStore.getState().clearPending();
       const parts = [
         addCount ? `${addCount} added` : "",
         removeCount ? `${removeCount} removed` : "",
@@ -208,6 +229,21 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     } catch (e) {
       toast.error(`Apply failed: ${msg(e)} — changes kept, try again`);
     }
+  },
+
+  discardPending: () => {
+    const n = countPending(
+      get().baseMembership,
+      get().membership,
+      useLibraryStore.getState().targets,
+    );
+    set({
+      membership: cloneMembership(get().baseMembership),
+      stats: { filed: 0, perTarget: {} },
+    });
+    useLibraryStore.getState().clearPending();
+    get().applyView();
+    if (n > 0) toast(`Discarded ${n} queued change${n === 1 ? "" : "s"}`);
   },
 
   applyView: () => {
@@ -274,15 +310,17 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     const inTarget = set0.has(t.id);
     const prevIndex = get().index;
 
-    // BATCH MODE: just toggle membership locally; applyPending() flushes later.
+    // BATCH MODE: toggle locally + persist the delta; applyPending() flushes.
+    // Never auto-advances — the whole point is filing one track to many targets.
     if (lib.settings.batchMode) {
       const nowIn = !inTarget;
       get()._setMembership(target.id, t.id, nowIn);
       get()._bumpStat(target.id, nowIn ? +1 : -1);
-      if (nowIn && lib.settings.autoAdvance) get().next();
+      lib.queueChange(target.id, t.id, nowIn ? "add" : "remove");
       const undo = () => {
         get()._setMembership(target.id, t.id, inTarget);
         get()._bumpStat(target.id, inTarget ? +1 : -1);
+        lib.queueChange(target.id, t.id, inTarget ? "add" : "remove");
         set({ index: prevIndex });
       };
       set({ lastUndo: undo });

@@ -51,7 +51,7 @@ export function PlayerBar() {
           <img
             src={cover}
             alt=""
-            className="h-11 w-11 rounded-md object-cover drag-none"
+            className="h-11 w-11 rounded-md object-cover drag-none border border-border"
             draggable={false}
           />
         ) : (
@@ -86,7 +86,7 @@ export function PlayerBar() {
           {playing ? (
             <Pause className="h-8 w-8" />
           ) : (
-            <Play className="h-8 w-8" />
+            <Play className="h-8 w-4" />
           )}
         </Button>
         <Button

@@ -2,9 +2,7 @@ import { useEffect } from "react";
 import { useSessionStore } from "@/store/useSessionStore";
 import { usePlayerStore } from "@/store/usePlayerStore";
 import { useUiStore } from "@/store/useUiStore";
-import { HOTKEYS } from "@/lib/hotkeys";
-
-const HOTKEY_SET = new Set<string>(HOTKEYS);
+import { useLibraryStore } from "@/store/useLibraryStore";
 
 /** Global keydown handler. The whole point of the app: keyboard-first sorting. */
 export function useKeyboard(enabled: boolean) {
@@ -42,7 +40,7 @@ export function useKeyboard(enabled: boolean) {
       } else if (e.key === " ") {
         player.toggle();
         e.preventDefault();
-      } else if (HOTKEY_SET.has(key)) {
+      } else if (useLibraryStore.getState().targets.some((t) => t.key === key)) {
         void session.fileToTarget(key);
         e.preventDefault();
       } else if (key === "z") {
