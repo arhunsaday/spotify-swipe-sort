@@ -40,6 +40,9 @@ interface LibraryState {
   setPosition: (sourceId: string, index: number) => void;
   queueChange: (targetId: string, trackId: string, op: "add" | "remove") => void;
   clearPending: () => void;
+  /** drop only the ids that were successfully applied — anything queued while
+   *  the flush was in flight stays queued. */
+  clearApplied: (applied: Pending) => void;
   /** set the full target order (drag-and-drop reorder); keys are preserved. */
   reorderTargets: (next: Target[]) => void;
   /** rebind a target to a specific key; swaps with whoever holds it. */
@@ -129,6 +132,19 @@ export const useLibraryStore = create<LibraryState>()(
       },
 
       clearPending: () => set({ pending: {} }),
+
+      clearApplied: (applied) => {
+        const pending = { ...get().pending };
+        for (const [targetId, delta] of Object.entries(applied)) {
+          const cur = pending[targetId];
+          if (!cur) continue;
+          const add = cur.add.filter((id) => !delta.add.includes(id));
+          const remove = cur.remove.filter((id) => !delta.remove.includes(id));
+          if (add.length === 0 && remove.length === 0) delete pending[targetId];
+          else pending[targetId] = { add, remove };
+        }
+        set({ pending });
+      },
 
       reorderTargets: (next) => set({ targets: next }),
 
