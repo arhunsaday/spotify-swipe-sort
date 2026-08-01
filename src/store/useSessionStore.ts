@@ -15,7 +15,7 @@ import {
 } from "@/api/spotify";
 import { QuotaError } from "@/api/client";
 import { chunk, mapLimit } from "@/lib/utils";
-import { useLibraryStore } from "./useLibraryStore";
+import { useLibraryStore, type Pending } from "./useLibraryStore";
 
 type Membership = Record<string, Set<string>>;
 
@@ -27,20 +27,35 @@ function cloneMembership(m: Membership): Membership {
 
 const uriFor = (trackId: string) => `spotify:track:${trackId}`;
 
+/** Pending changes = symmetric diff between base and current membership. */
+export function pendingStats(
+  base: Membership,
+  cur: Membership,
+  targets: { id: string }[],
+): Stats {
+  const perTarget: Record<string, number> = {};
+  let filed = 0;
+  for (const tg of targets) {
+    const b = base[tg.id] ?? new Set<string>();
+    const c = cur[tg.id] ?? new Set<string>();
+    let n = 0;
+    for (const id of c) if (!b.has(id)) n++;
+    for (const id of b) if (!c.has(id)) n++;
+    if (n) {
+      perTarget[tg.id] = n;
+      filed += n;
+    }
+  }
+  return { filed, perTarget };
+}
+
 /** Net pending change count = symmetric diff between base and current membership. */
 export function countPending(
   base: Membership,
   cur: Membership,
   targets: { id: string }[],
 ): number {
-  let n = 0;
-  for (const tg of targets) {
-    const b = base[tg.id] ?? new Set<string>();
-    const c = cur[tg.id] ?? new Set<string>();
-    for (const id of c) if (!b.has(id)) n++;
-    for (const id of b) if (!c.has(id)) n++;
-  }
-  return n;
+  return pendingStats(base, cur, targets).filed;
 }
 
 type Status = "idle" | "loading" | "ready" | "error";
@@ -64,6 +79,8 @@ interface SessionState {
   stats: Stats;
   dir: 1 | -1;
   lastUndo: (() => void) | null;
+  /** a flush is in flight — blocks re-entry so nothing gets added twice */
+  applying: boolean;
 
   current: () => SpotifyTrack | null;
   loadSource: (sourceId: string) => Promise<void>;
@@ -80,7 +97,13 @@ interface SessionState {
   fileToTarget: (key: string) => Promise<void>;
   undoLast: () => void;
 
-  _setMembership: (targetId: string, trackId: string, present: boolean) => void;
+  /** `alsoBase` = the change is already live on Spotify, so it isn't pending. */
+  _setMembership: (
+    targetId: string,
+    trackId: string,
+    present: boolean,
+    alsoBase?: boolean,
+  ) => void;
   _bumpStat: (targetId: string, delta: number) => void;
   _removeCurrentFromDeck: () => void;
   _reinsertToDeck: (track: SpotifyTrack, atIndex: number) => void;
@@ -130,6 +153,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   stats: { filed: 0, perTarget: {} },
   dir: 1,
   lastUndo: null,
+  applying: false,
 
   current: () => get().tracks[get().index] ?? null,
 
@@ -190,44 +214,84 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
 
   applyPending: async () => {
     const lib = useLibraryStore.getState();
+    // outside batch mode every change is already written through on file
+    if (!lib.settings.batchMode) return;
+    // re-entry would recompute the same diff (the baseline only moves once the
+    // requests land) and add every queued track a second time
+    if (get().applying) return;
+
     const base = get().baseMembership;
     const cur = get().membership;
-    const jobs: { playlistId: string; op: "add" | "remove"; uris: string[] }[] =
+    // one job per request: chunked up front so a mid-flight failure still lets
+    // us commit exactly the chunks that landed
+    const jobs: { playlistId: string; op: "add" | "remove"; ids: string[] }[] =
       [];
     for (const tg of lib.targets) {
       const b = base[tg.id] ?? new Set<string>();
       const c = cur[tg.id] ?? new Set<string>();
-      const adds = [...c].filter((id) => !b.has(id)).map(uriFor);
-      const removes = [...b].filter((id) => !c.has(id)).map(uriFor);
-      if (adds.length) jobs.push({ playlistId: tg.id, op: "add", uris: adds });
-      if (removes.length)
-        jobs.push({ playlistId: tg.id, op: "remove", uris: removes });
+      const adds = [...c].filter((id) => !b.has(id));
+      const removes = [...b].filter((id) => !c.has(id));
+      for (const part of chunk(adds, 100))
+        jobs.push({ playlistId: tg.id, op: "add", ids: part });
+      for (const part of chunk(removes, 100))
+        jobs.push({ playlistId: tg.id, op: "remove", ids: part });
     }
     if (jobs.length === 0) return;
 
-    const addCount = jobs
-      .filter((j) => j.op === "add")
-      .reduce((n, j) => n + j.uris.length, 0);
-    const removeCount = jobs
-      .filter((j) => j.op === "remove")
-      .reduce((n, j) => n + j.uris.length, 0);
-
+    const done: Pending = {};
+    let failure: unknown = null;
+    set({ applying: true });
     try {
       await mapLimit(jobs, 2, async (job) => {
-        for (const part of chunk(job.uris, 100)) {
-          if (job.op === "add") await addTracksToPlaylist(job.playlistId, part);
-          else await removeTracksFromPlaylist(job.playlistId, part);
+        const uris = job.ids.map(uriFor);
+        try {
+          if (job.op === "add") await addTracksToPlaylist(job.playlistId, uris);
+          else await removeTracksFromPlaylist(job.playlistId, uris);
+          const d = (done[job.playlistId] ??= { add: [], remove: [] });
+          d[job.op].push(...job.ids);
+        } catch (e) {
+          failure ??= e;
         }
       });
-      set({ baseMembership: cloneMembership(get().membership) });
-      useLibraryStore.getState().clearPending();
+
+      // advance the baseline by exactly what Spotify accepted — anything
+      // queued while we were in flight stays pending
+      const nextBase = cloneMembership(get().baseMembership);
+      for (const [targetId, delta] of Object.entries(done)) {
+        const s = new Set(nextBase[targetId] ?? []);
+        delta.add.forEach((id) => s.add(id));
+        delta.remove.forEach((id) => s.delete(id));
+        nextBase[targetId] = s;
+      }
+      const targets = useLibraryStore.getState().targets;
+      set({
+        baseMembership: nextBase,
+        stats: pendingStats(nextBase, get().membership, targets),
+      });
+      useLibraryStore.getState().clearApplied(done);
+
+      const addCount = Object.values(done).reduce((n, d) => n + d.add.length, 0);
+      const removeCount = Object.values(done).reduce(
+        (n, d) => n + d.remove.length,
+        0,
+      );
       const parts = [
         addCount ? `${addCount} added` : "",
         removeCount ? `${removeCount} removed` : "",
       ].filter(Boolean);
-      toast.success(`Applied — ${parts.join(", ")}`);
+      if (failure) {
+        toast.error(
+          `Apply failed: ${msg(failure)}${
+            parts.length ? ` — ${parts.join(", ")} went through` : ""
+          }, the rest stayed queued`,
+        );
+      } else {
+        toast.success(`Applied — ${parts.join(", ")}`);
+      }
     } catch (e) {
       toast.error(`Apply failed: ${msg(e)} — changes kept, try again`);
+    } finally {
+      set({ applying: false });
     }
   },
 
@@ -328,7 +392,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     }
 
     if (inTarget) {
-      get()._setMembership(target.id, t.id, false);
+      get()._setMembership(target.id, t.id, false, true);
       get()._bumpStat(target.id, -1);
       const undo = () => void get()._reAddToTarget(target, t);
       set({ lastUndo: undo });
@@ -338,7 +402,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       try {
         await removeTrackFromPlaylist(target.id, t.uri);
       } catch (e) {
-        get()._setMembership(target.id, t.id, true);
+        get()._setMembership(target.id, t.id, true, true);
         get()._bumpStat(target.id, +1);
         toast.error(`Couldn't remove: ${msg(e)}`);
       }
@@ -347,7 +411,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
 
     const doMove =
       lib.settings.moveMode && !!lib.sourceId && lib.sourceId !== target.id;
-    get()._setMembership(target.id, t.id, true);
+    get()._setMembership(target.id, t.id, true, true);
     get()._bumpStat(target.id, +1);
 
     if (doMove) get()._removeCurrentFromDeck();
@@ -368,7 +432,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
           await removeTrackFromPlaylist(lib.sourceId, t.uri);
       }
     } catch (e) {
-      get()._setMembership(target.id, t.id, false);
+      get()._setMembership(target.id, t.id, false, true);
       get()._bumpStat(target.id, -1);
       if (doMove) get()._reinsertToDeck(t, prevIndex);
       toast.error(`Couldn't add: ${msg(e)}`);
@@ -383,13 +447,19 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     }
   },
 
-  _setMembership: (targetId, trackId, present) => {
+  _setMembership: (targetId, trackId, present, alsoBase = false) => {
     const membership = { ...get().membership };
     const s = new Set(membership[targetId] ?? []);
     if (present) s.add(trackId);
     else s.delete(trackId);
     membership[targetId] = s;
-    set({ membership });
+    if (!alsoBase) return set({ membership });
+    const baseMembership = { ...get().baseMembership };
+    const b = new Set(baseMembership[targetId] ?? []);
+    if (present) b.add(trackId);
+    else b.delete(trackId);
+    baseMembership[targetId] = b;
+    set({ membership, baseMembership });
   },
 
   _bumpStat: (targetId, delta) => {
@@ -426,12 +496,12 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   },
 
   _reAddToTarget: async (target, track) => {
-    get()._setMembership(target.id, track.id, true);
+    get()._setMembership(target.id, track.id, true, true);
     get()._bumpStat(target.id, +1);
     try {
       await addTrackToPlaylist(target.id, track.uri);
     } catch (e) {
-      get()._setMembership(target.id, track.id, false);
+      get()._setMembership(target.id, track.id, false, true);
       get()._bumpStat(target.id, -1);
       toast.error(`Undo failed: ${msg(e)}`);
     }
@@ -439,7 +509,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
 
   _undoAdd: async (target, track, prevIndex, moved) => {
     const lib = useLibraryStore.getState();
-    get()._setMembership(target.id, track.id, false);
+    get()._setMembership(target.id, track.id, false, true);
     get()._bumpStat(target.id, -1);
     if (moved) get()._reinsertToDeck(track, prevIndex);
     else set({ index: prevIndex });

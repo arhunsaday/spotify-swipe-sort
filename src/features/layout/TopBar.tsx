@@ -5,6 +5,7 @@ import {
   Heart,
   Keyboard,
   ListMusic,
+  Loader2,
   LogOut,
   Sparkles,
   X,
@@ -35,6 +36,7 @@ export function TopBar() {
   const baseMembership = useSessionStore((s) => s.baseMembership);
   const applyPending = useSessionStore((s) => s.applyPending);
   const discardPending = useSessionStore((s) => s.discardPending);
+  const applying = useSessionStore((s) => s.applying);
 
   const targets = useLibraryStore((s) => s.targets);
   const batchMode = useLibraryStore((s) => s.settings.batchMode);
@@ -112,21 +114,29 @@ export function TopBar() {
                   <TooltipTrigger asChild>
                     <button
                       onClick={() => void applyPending()}
-                      className="flex h-full items-center gap-1.5 bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                      disabled={applying}
+                      className="flex h-full items-center gap-1.5 bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-progress disabled:hover:bg-primary"
                     >
-                      <Check className="h-3.5 w-3.5" />
-                      Apply {pending}
+                      {applying ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5" />
+                      )}
+                      {applying ? "Applying…" : `Apply ${pending}`}
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Apply queued changes · Enter</TooltipContent>
+                  <TooltipContent>
+                    {applying ? "Applying…" : "Apply queued changes · Enter"}
+                  </TooltipContent>
                 </Tooltip>
                 <div className="h-full w-px bg-primary-foreground/25" />
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
                       onClick={() => discardPending()}
+                      disabled={applying}
                       aria-label="Discard queued changes"
-                      className="flex h-full items-center bg-primary px-2 text-primary-foreground/70 transition-colors hover:bg-primary/90 hover:text-primary-foreground"
+                      className="flex h-full items-center bg-primary px-2 text-primary-foreground/70 transition-colors hover:bg-primary/90 hover:text-primary-foreground disabled:cursor-progress disabled:hover:bg-primary disabled:hover:text-primary-foreground/70"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>

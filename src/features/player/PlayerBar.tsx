@@ -1,16 +1,25 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   ChevronLeft,
   ChevronRight,
+  Copy,
+  ExternalLink,
+  Link2,
   Maximize2,
   Minimize2,
   Pause,
   Play,
+  RotateCcw,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import {
+  ContextMenu,
+  type ContextMenuItem,
+} from "@/components/ui/context-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -35,6 +44,7 @@ export function PlayerBar() {
     volume,
     previewVia,
     toggle,
+    play,
     seekFraction,
     setVolume,
   } = usePlayerStore();
@@ -44,6 +54,59 @@ export function PlayerBar() {
   const noPreview = previewVia === "none";
 
   const fs = useFullscreen();
+
+  const spotifyUrl = track ? `https://open.spotify.com/track/${track.id}` : "";
+  const transportMenu: ContextMenuItem[] = [
+    {
+      label: playing ? "Pause preview" : "Play preview",
+      icon: playing ? Pause : Play,
+      onSelect: toggle,
+      disabled: !track || noPreview,
+    },
+    {
+      label: "Restart preview",
+      icon: RotateCcw,
+      onSelect: () => {
+        seekFraction(0);
+        play();
+      },
+      disabled: !track || noPreview,
+    },
+    {
+      label: "Play on Spotify",
+      icon: ExternalLink,
+      divider: true,
+      onSelect: () => window.open(spotifyUrl, "_blank", "noopener,noreferrer"),
+      disabled: !track,
+    },
+    {
+      label: "Open in Spotify app",
+      icon: Play,
+      onSelect: () => {
+        if (track) window.location.href = track.uri; // spotify:track:<id>
+      },
+      disabled: !track,
+    },
+    {
+      label: "Copy Spotify link",
+      icon: Link2,
+      divider: true,
+      onSelect: () => void copy(spotifyUrl, "link"),
+      disabled: !track,
+    },
+    {
+      label: "Copy title & artist",
+      icon: Copy,
+      onSelect: () =>
+        void copy(
+          track
+            ? `${track.artists.map((a) => a.name).join(", ")} — ${track.name}`
+            : "",
+          "track",
+        ),
+      disabled: !track,
+    },
+  ];
 
   return (
     <div className="flex h-20 items-center gap-4 border-t border-border bg-card/80 px-4 backdrop-blur">
@@ -95,20 +158,27 @@ export function PlayerBar() {
         >
           <ChevronLeft className="h-5 w-5" />
         </Button>
-        <Button
-          size="icon"
-          variant="secondary"
-          onClick={toggle}
-          disabled={!track || noPreview}
-          title={noPreview ? "No preview available" : undefined}
-          aria-label="Play/pause"
-        >
-          {playing ? (
-            <Pause className="h-8 w-8" />
-          ) : (
-            <Play className="h-8 w-4" />
-          )}
-        </Button>
+        <ContextMenu items={transportMenu}>
+          <Button
+            size="icon"
+            variant="secondary"
+            onClick={toggle}
+            disabled={!track || noPreview}
+            title={
+              noPreview
+                ? "No preview available — right-click for more"
+                : "Right-click for more options"
+            }
+            aria-haspopup="menu"
+            aria-label="Play/pause"
+          >
+            {playing ? (
+              <Pause className="h-8 w-8" />
+            ) : (
+              <Play className="h-8 w-4" />
+            )}
+          </Button>
+        </ContextMenu>
         <Button
           size="icon-sm"
           variant="ghost"
@@ -208,6 +278,16 @@ export function PlayerBar() {
       </div>
     </div>
   );
+}
+
+async function copy(text: string, what: string) {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(`Copied ${what}`);
+  } catch {
+    toast.error("Couldn't copy to clipboard");
+  }
 }
 
 function toggleFullscreen() {

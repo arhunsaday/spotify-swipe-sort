@@ -62,6 +62,7 @@ export function TargetRail() {
 function TargetRow({ tg }: { tg: Target }) {
   const controls = useDragControls();
   const setTargetKey = useLibraryStore((s) => s.setTargetKey);
+  const batchMode = useLibraryStore((s) => s.settings.batchMode);
   const file = useSessionStore((s) => s.fileToTarget);
   const membership = useSessionStore((s) => s.membership);
   const perTarget = useSessionStore((s) => s.stats.perTarget);
@@ -137,7 +138,7 @@ function TargetRow({ tg }: { tg: Target }) {
           <p className="truncate text-sm font-medium">{tg.name}</p>
           {count > 0 && (
             <p className="text-xs text-muted-foreground tabnum">
-              +{count} queued
+              +{count} {batchMode ? "queued" : "filed"}
             </p>
           )}
         </div>
