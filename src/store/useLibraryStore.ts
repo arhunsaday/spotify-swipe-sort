@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { SpotifyPlaylist, Target } from "@/types";
 import { getMyPlaylists, LIKED_SOURCE_ID } from "@/api/spotify";
+import { PLAYLISTS_TTL, readPlaylists, writePlaylists } from "@/lib/cache";
 import { HOTKEYS, MAX_TARGETS, isAllowedKey } from "@/lib/hotkeys";
 
 export interface Settings {
@@ -24,6 +25,8 @@ export type Pending = Record<string, PendingDelta>;
 interface LibraryState {
   playlists: SpotifyPlaylist[];
   loadingPlaylists: boolean;
+  /** when the index last came off the network (0 = cache-only so far) */
+  playlistsSyncedAt: number;
   sourceId: string | null;
   targets: Target[];
   settings: Settings;
@@ -32,7 +35,11 @@ interface LibraryState {
   /** batch queue: targetId -> {add, remove} trackIds, survives reloads. */
   pending: Pending;
 
-  loadPlaylists: () => Promise<void>;
+  loadPlaylists: (force?: boolean) => Promise<void>;
+  /** resolve once the index is present and reasonably fresh — lets the session
+   *  loader reuse each playlist's snapshot_id instead of asking per target. */
+  ensurePlaylists: () => Promise<void>;
+  playlistById: (id: string) => SpotifyPlaylist | undefined;
   setSource: (id: string) => void;
   isTarget: (id: string) => boolean;
   toggleTarget: (pl: { id: string; name: string; imageUrl?: string }) => void;
@@ -54,11 +61,15 @@ function firstFreeKey(targets: Target[]): string {
   return HOTKEYS.find((k) => !used.has(k)) ?? "";
 }
 
+/** Dedupes concurrent callers (App mount + setup dialog + session loader). */
+let playlistsInFlight: Promise<void> | null = null;
+
 export const useLibraryStore = create<LibraryState>()(
   persist(
     (set, get) => ({
       playlists: [],
       loadingPlaylists: false,
+      playlistsSyncedAt: 0,
       sourceId: null,
       targets: [],
       settings: {
@@ -72,15 +83,38 @@ export const useLibraryStore = create<LibraryState>()(
       positions: {},
       pending: {},
 
-      loadPlaylists: async () => {
-        set({ loadingPlaylists: true });
-        try {
-          const playlists = await getMyPlaylists();
-          set({ playlists });
-        } finally {
-          set({ loadingPlaylists: false });
-        }
+      loadPlaylists: (force = false) => {
+        if (playlistsInFlight) return playlistsInFlight;
+        playlistsInFlight = (async () => {
+          set({ loadingPlaylists: true });
+          try {
+            // paint from cache first so the setup dialog opens instantly
+            if (get().playlists.length === 0) {
+              const cached = await readPlaylists();
+              if (cached) set({ playlists: cached.data });
+            }
+            const fresh = Date.now() - get().playlistsSyncedAt < PLAYLISTS_TTL;
+            if (!force && fresh && get().playlists.length > 0) return;
+            const playlists = await getMyPlaylists();
+            set({ playlists, playlistsSyncedAt: Date.now() });
+            void writePlaylists(playlists);
+          } finally {
+            set({ loadingPlaylists: false });
+            playlistsInFlight = null;
+          }
+        })();
+        return playlistsInFlight;
       },
+
+      ensurePlaylists: async () => {
+        if (playlistsInFlight) return playlistsInFlight;
+        const { playlists, playlistsSyncedAt } = get();
+        if (playlists.length > 0 && Date.now() - playlistsSyncedAt < PLAYLISTS_TTL)
+          return;
+        return get().loadPlaylists();
+      },
+
+      playlistById: (id) => get().playlists.find((p) => p.id === id),
 
       setSource: (id) => set({ sourceId: id }),
 

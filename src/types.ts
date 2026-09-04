@@ -26,8 +26,20 @@ export interface SpotifyPlaylist {
   images: SpotifyImage[];
   tracks: { total: number };
   owner: { display_name?: string; id: string };
+  /** Changes on *any* edit to the playlist — our cache validator. */
+  snapshot_id?: string;
   /** Synthetic marker for the pseudo-playlist "Liked Songs". */
   isLiked?: boolean;
+}
+
+/** Cheap fingerprint of a remote list, used to decide whether a cached copy is
+ *  still good. One request to obtain, and it moves whenever the list moves:
+ *  playlists carry `snapshot_id`; Liked Songs has none, so it pairs `total`
+ *  with the id of the most-recently-saved track. */
+export interface ListStamp {
+  snapshot: string | null;
+  total: number;
+  firstId: string | null;
 }
 
 export interface SpotifyUser {

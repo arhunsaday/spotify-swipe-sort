@@ -31,6 +31,9 @@ export function TopBar() {
 
   const index = useSessionStore((s) => s.index);
   const total = useSessionStore((s) => s.tracks.length);
+  const syncing = useSessionStore((s) => s.syncing);
+  const loadedCount = useSessionStore((s) => s.loaded);
+  const sourceTotal = useSessionStore((s) => s.total);
   const filed = useSessionStore((s) => s.stats.filed);
   const membership = useSessionStore((s) => s.membership);
   const baseMembership = useSessionStore((s) => s.baseMembership);
@@ -107,6 +110,21 @@ export function TopBar() {
         <span className="whitespace-nowrap text-xs text-muted-foreground tabnum">
           {total > 0 ? `${index + 1} / ${total}` : "—"}
         </span>
+        {syncing && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex items-center gap-1 text-xs text-muted-foreground tabnum">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {sourceTotal > loadedCount && loadedCount > 0
+                  ? `${loadedCount} / ${sourceTotal}`
+                  : null}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              Checking Spotify for changes — you can keep sorting
+            </TooltipContent>
+          </Tooltip>
+        )}
         {batchMode
           ? pending > 0 && (
               <div className="flex h-7 items-center overflow-hidden rounded-md">

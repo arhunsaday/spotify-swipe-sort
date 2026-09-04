@@ -21,9 +21,11 @@ import { Separator } from "@/components/ui/separator";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import { LIKED_SOURCE_ID, useLibraryStore } from "@/store/useLibraryStore";
+import { useSessionStore } from "@/store/useSessionStore";
 import { useUiStore } from "@/store/useUiStore";
 import type { Settings } from "@/store/useLibraryStore";
 import { MAX_TARGETS } from "@/lib/hotkeys";
+import { clearAllCaches } from "@/lib/cache";
 
 export function SetupDialog() {
   const open = useUiStore((s) => s.setupOpen);
@@ -52,6 +54,16 @@ export function SetupDialog() {
   );
 
   const targetKey = (id: string) => targets.find((t) => t.id === id)?.key;
+  const targetsFull = (id: string) =>
+    targets.length >= MAX_TARGETS && !targetKey(id);
+
+  /** Throw away every cached list and re-read everything from Spotify. */
+  const hardRefresh = async () => {
+    await clearAllCaches();
+    await loadPlaylists(true);
+    const sid = useLibraryStore.getState().sourceId;
+    if (sid) void useSessionStore.getState().loadSource(sid, { force: true });
+  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -77,9 +89,10 @@ export function SetupDialog() {
           <Button
             variant="outline"
             size="icon"
-            onClick={() => void loadPlaylists()}
+            onClick={() => void hardRefresh()}
             disabled={loading}
-            aria-label="Reload playlists"
+            aria-label="Refresh from Spotify"
+            title="Refresh from Spotify — clears the local cache and re-reads everything"
           >
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -91,7 +104,7 @@ export function SetupDialog() {
 
         <div className="min-h-0 flex-1 overflow-y-auto border-y border-border scrollbar-thin">
           <div className="space-y-1 p-3">
-            {/* Liked Songs pseudo-source */}
+            {/* Liked Songs — usable as a source *and* as a target */}
             {"liked songs".includes(q.trim().toLowerCase()) && (
               <Row
                 title="Liked Songs"
@@ -99,6 +112,11 @@ export function SetupDialog() {
                 icon={<Heart className="h-4 w-4 text-primary" />}
                 isSource={sourceId === LIKED_SOURCE_ID}
                 onSource={() => setSource(LIKED_SOURCE_ID)}
+                targetKey={targetKey(LIKED_SOURCE_ID)}
+                onToggleTarget={() =>
+                  toggleTarget({ id: LIKED_SOURCE_ID, name: "Liked Songs" })
+                }
+                targetsFull={targetsFull(LIKED_SOURCE_ID)}
               />
             )}
 
@@ -118,7 +136,7 @@ export function SetupDialog() {
                     imageUrl: p.images?.[0]?.url,
                   })
                 }
-                targetsFull={targets.length >= MAX_TARGETS && !targetKey(p.id)}
+                targetsFull={targetsFull(p.id)}
               />
             ))}
 
@@ -268,8 +286,9 @@ function SettingsSection() {
       ))}
       <Separator />
       <p className="text-xs text-muted-foreground">
-        Data stays in your browser. Development-mode apps share a quota bucket —
-        target playlists are prefetched once per session to power true toggles.
+        Data stays in your browser. Playlists are cached locally and re-read
+        only when Spotify says they changed — use the refresh button above to
+        force a full reload.
       </p>
     </div>
   );
