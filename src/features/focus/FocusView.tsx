@@ -7,13 +7,26 @@ import { cn } from "@/lib/utils";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useLibraryStore } from "@/store/useLibraryStore";
 import { usePlayerStore } from "@/store/usePlayerStore";
-import { resolvePreview } from "@/lib/preview";
+import { prefetchPreviews, resolvePreview } from "@/lib/preview";
+import type { SpotifyTrack } from "@/types";
+
+/** Prefer a mid-size cover — the 640px original is wasted on a 340px box. */
+function coverUrl(track: SpotifyTrack | null): string {
+  if (!track) return "";
+  return (
+    track.album.images.find((i) => (i.width ?? 0) >= 300)?.url ??
+    track.album.images[0]?.url ??
+    ""
+  );
+}
 
 export function FocusView() {
   const tracks = useSessionStore((s) => s.tracks);
   const index = useSessionStore((s) => s.index);
   const dir = useSessionStore((s) => s.dir);
   const status = useSessionStore((s) => s.status);
+  const loaded = useSessionStore((s) => s.loaded);
+  const total = useSessionStore((s) => s.total);
   const next = useSessionStore((s) => s.next);
   const prev = useSessionStore((s) => s.prev);
   const autoplay = useLibraryStore((s) => s.settings.previewAutoplay);
@@ -28,10 +41,7 @@ export function FocusView() {
   const noPreview = previewVia === "none";
   const reqId = useRef(0);
 
-  const cover =
-    track?.album.images.find((i) => (i.width ?? 0) >= 300)?.url ??
-    track?.album.images[0]?.url ??
-    "";
+  const cover = coverUrl(track);
 
   // resolve the preview whenever the current track changes
   useEffect(() => {
@@ -50,11 +60,28 @@ export function FocusView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track?.id]);
 
+  // warm the next few tracks so → is instant: iTunes lookup + cover image.
+  // Debounced so holding the arrow key doesn't queue a lookup per track.
+  useEffect(() => {
+    const upcoming = tracks.slice(index + 1, index + 4);
+    if (upcoming.length === 0) return;
+    const t = window.setTimeout(() => {
+      void prefetchPreviews(upcoming);
+      for (const u of upcoming) {
+        const url = coverUrl(u);
+        if (url) new Image().src = url;
+      }
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [tracks, index]);
+
   if (status === "loading") {
     return (
       <Centered>
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Loading source…</p>
+        <p className="text-sm text-muted-foreground tabnum">
+          {total > 0 ? `Loading source… ${loaded} / ${total}` : "Loading source…"}
+        </p>
       </Centered>
     );
   }

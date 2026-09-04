@@ -80,11 +80,47 @@ picks up where you left off (matches the original "persist zustand" note).
   call). Debounce rapid keypresses so you don't spam the API (and the quota).
 - Central keydown handler; ignore when focus is in an input.
 
+## Local cache & pagination (`src/lib/idb.ts`, `src/lib/cache.ts`)
+
+Source lists, target contents, the playlist index and resolved preview URLs all
+live in IndexedDB (not localStorage — one 3k-track playlist is already ~1.5 MB,
+and the 5 MB origin quota runs out after two of them). Every store degrades to a
+no-op when storage is unavailable, so the app still runs, just uncached.
+
+Loading a source is **stale-while-revalidate**:
+
+1. Paint the cached deck and target memberships immediately — no request yet.
+2. Validate each list with one cheap *stamp* request, and re-page only what moved.
+
+Stamps deliberately aren't `snapshot_id` alone:
+
+| list | validator |
+| --- | --- |
+| playlist | `snapshot_id` (moves on any edit, reorder included) **+** track total |
+| Liked Songs | `total` + the id of the newest saved track (no snapshot exists) |
+| playlist index | plain TTL — `/me/playlists` has no validator |
+| all of the above | a hard max age, so nothing can pin a stale list forever |
+
+Two shortcuts fall out of this: a list fetched seconds ago skips validation
+entirely, and a freshly fetched `/me/playlists` already carries every playlist's
+`snapshot_id`, so validating N targets costs **zero** extra requests. Our own
+writes patch the cache in place using the `snapshot_id` the write returns, so
+filing tracks never invalidates what we just cached.
+
+Pagination is uncapped and streams: pages land in the deck as they arrive, so a
+3k-track playlist is sortable long before the last page. `fields=` trims the
+response to what the UI reads (dropping `available_markets` alone is ~4x the
+bytes). A saved position past the loaded pages is honoured once that page
+arrives, unless the user has navigated in the meantime.
+
 ## Add / remove track calls
 
 - Add: `POST /v1/playlists/{playlist_id}/tracks` with `{ uris: ["spotify:track:ID"] }`.
 - Remove: `DELETE /v1/playlists/{playlist_id}/tracks` with
   `{ tracks: [{ uri: "spotify:track:ID" }] }`.
+- **Liked Songs** is a target like any other in the UI, but routes to
+  `PUT`/`DELETE /v1/me/tracks?ids=…` instead, batches 50 ids per request rather
+  than 100, and has no `snapshot_id` to validate against.
 - Track "already in playlist" state where possible to make the hotkey a true
   toggle and to power duplicate detection (could-have).
 

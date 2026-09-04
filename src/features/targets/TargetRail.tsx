@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Reorder, useDragControls } from "framer-motion";
-import { Check, GripVertical, ListMusic, Plus } from "lucide-react";
+import { Check, GripVertical, Heart, ListMusic, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import { isAllowedKey } from "@/lib/hotkeys";
-import { useLibraryStore } from "@/store/useLibraryStore";
+import { LIKED_SOURCE_ID, useLibraryStore } from "@/store/useLibraryStore";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useUiStore } from "@/store/useUiStore";
 import type { Target } from "@/types";
@@ -129,6 +129,10 @@ function TargetRow({ tg }: { tg: Target }) {
             className="h-9 w-9 shrink-0 rounded-md object-cover drag-none"
             draggable={false}
           />
+        ) : tg.id === LIKED_SOURCE_ID ? (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15">
+            <Heart className="h-4 w-4 text-primary" />
+          </div>
         ) : (
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-secondary">
             <ListMusic className="h-4 w-4 text-muted-foreground" />

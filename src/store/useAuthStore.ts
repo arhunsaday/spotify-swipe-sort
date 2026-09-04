@@ -8,6 +8,7 @@ import {
 } from "@/auth/pkce";
 import { getMe } from "@/api/spotify";
 import { registerTokenProvider } from "@/api/client";
+import { clearAllCaches } from "@/lib/cache";
 
 type Status = "idle" | "loading" | "authed" | "error";
 
@@ -62,6 +63,8 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        // cached playlists belong to the account that just left
+        void clearAllCaches();
         set({ tokens: null, user: null, status: "idle", error: null });
       },
 
