@@ -284,12 +284,6 @@ function SettingsSection() {
           />
         </div>
       ))}
-      <Separator />
-      <p className="text-xs text-muted-foreground">
-        Data stays in your browser. Playlists are cached locally and re-read
-        only when Spotify says they changed — use the refresh button above to
-        force a full reload.
-      </p>
     </div>
   );
 }

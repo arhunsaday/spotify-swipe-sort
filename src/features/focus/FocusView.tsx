@@ -80,7 +80,9 @@ export function FocusView() {
       <Centered>
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         <p className="text-sm text-muted-foreground tabnum">
-          {total > 0 ? `Loading source… ${loaded} / ${total}` : "Loading source…"}
+          {total > 0
+            ? `Loading source… ${loaded} / ${total}`
+            : "Loading source…"}
         </p>
       </Centered>
     );
@@ -161,7 +163,7 @@ export function FocusView() {
               )}
             </div>
 
-            <h1 className="mt-5 line-clamp-2 text-center text-3xl font-bold tracking-tight">
+            <h1 className="mt-5 line-clamp-2 text-center text-3xl font-bold tracking-tight hover:text-white/60">
               <a
                 href={`https://open.spotify.com/track/${track.id}`}
                 target="_blank"
@@ -173,7 +175,15 @@ export function FocusView() {
               </a>
             </h1>
             <p className="mt-1 text-center text-lg text-muted-foreground">
-              {track.artists.map((a) => a.name).join(", ")}
+              <a
+                href={`https://open.spotify.com/artist/${track.artists[0].id}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Open in Spotify"
+                className="cursor-pointer text-inherit no-underline outline-none hover:text-white/80"
+              >
+                {track.artists.map((a) => a.name).join(", ")}
+              </a>
             </p>
             <p className="mt-0.5 text-center text-sm text-muted-foreground/70">
               {track.album.name}
@@ -199,7 +209,11 @@ export function FocusView() {
             title={noPreview ? "No preview available" : undefined}
             aria-label="Play/pause"
           >
-            {playing ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+            {playing ? (
+              <Pause className="h-6 w-6" />
+            ) : (
+              <Play className="h-6 w-6" />
+            )}
           </Button>
           <Button
             variant="secondary"
@@ -211,14 +225,6 @@ export function FocusView() {
           </Button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Centered({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-3">
-      {children}
     </div>
   );
 }
