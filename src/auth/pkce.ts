@@ -11,6 +11,10 @@ export const SCOPES = [
   "user-library-read",
   "user-library-modify",
   "user-read-private", // for /me `product` (Premium check)
+  "user-read-playback-state", // list the user's Spotify devices
+  "user-modify-playback-state", // start a track on one of them
+  "user-read-email", // required by the Web Playback SDK
+  "streaming", // lets this tab register itself as a Spotify device
 ].join(" ");
 
 const LS = {

@@ -3,6 +3,7 @@ import { useSessionStore } from "@/store/useSessionStore";
 import { usePlayerStore } from "@/store/usePlayerStore";
 import { useUiStore } from "@/store/useUiStore";
 import { useLibraryStore } from "@/store/useLibraryStore";
+// import { toggleFullTracks } from "@/lib/playback";
 
 /** Global keydown handler. The whole point of the app: keyboard-first sorting. */
 export function useKeyboard(enabled: boolean) {
@@ -22,7 +23,7 @@ export function useKeyboard(enabled: boolean) {
       const ui = useUiStore.getState();
       // when a dialog is open, let it own the keyboard
       if (ui.setupOpen || ui.helpOpen) {
-        if (e.key === "?" ) ui.toggleHelp();
+        if (e.key === "?") ui.toggleHelp();
         return;
       }
 
@@ -40,9 +41,15 @@ export function useKeyboard(enabled: boolean) {
       } else if (e.key === " ") {
         player.toggle();
         e.preventDefault();
-      } else if (useLibraryStore.getState().targets.some((t) => t.key === key)) {
+      } else if (
+        useLibraryStore.getState().targets.some((t) => t.key === key)
+      ) {
         void session.fileToTarget(key);
         e.preventDefault();
+        // }
+        // else if (key === "f") {
+        //   toggleFullTracks();
+        //   e.preventDefault();
       } else if (key === "z") {
         session.undoLast();
         e.preventDefault();

@@ -14,8 +14,21 @@ export interface ContextMenuItem {
 interface ContextMenuProps {
   items: ContextMenuItem[];
   children: React.ReactNode;
-  /** extra classes for the wrapper that owns the right-click */
+  /** extra classes for the wrapper that owns the trigger */
   className?: string;
+  /** right-click at the cursor (default), or left-click anchored to the child */
+  trigger?: "contextmenu" | "click";
+  /** left-click triggers only: called when the menu opens, to refresh items */
+  onOpen?: () => void;
+}
+
+/** Where the menu wants to sit. `flipTo` is the y to use instead when opening
+ *  downward would run off-screen — set for anchored menus so a trigger in the
+ *  bottom bar opens upward rather than covering itself. */
+interface Pos {
+  x: number;
+  y: number;
+  flipTo: number | null;
 }
 
 const PAD = 8;
@@ -23,8 +36,14 @@ const PAD = 8;
 /** Minimal right-click menu — portalled, viewport-clamped, keyboard-drivable.
  *  The wrapper (not the child) owns `contextmenu`, so it still fires when the
  *  child is a disabled button. */
-export function ContextMenu({ items, children, className }: ContextMenuProps) {
-  const [pos, setPos] = React.useState<{ x: number; y: number } | null>(null);
+export function ContextMenu({
+  items,
+  children,
+  className,
+  trigger = "contextmenu",
+  onOpen,
+}: ContextMenuProps) {
+  const [pos, setPos] = React.useState<Pos | null>(null);
   const [active, setActive] = React.useState(0);
   const menuRef = React.useRef<HTMLDivElement>(null);
 
@@ -55,8 +74,11 @@ export function ContextMenu({ items, children, className }: ContextMenuProps) {
     if (!pos || !el) return;
     const r = el.getBoundingClientRect();
     const x = Math.max(PAD, Math.min(pos.x, window.innerWidth - r.width - PAD));
-    const y = Math.max(PAD, Math.min(pos.y, window.innerHeight - r.height - PAD));
-    if (x !== pos.x || y !== pos.y) setPos({ x, y });
+    const overflows = pos.y + r.height > window.innerHeight - PAD;
+    const wanted =
+      overflows && pos.flipTo !== null ? pos.flipTo - r.height : pos.y;
+    const y = Math.max(PAD, Math.min(wanted, window.innerHeight - r.height - PAD));
+    if (x !== pos.x || y !== pos.y) setPos({ ...pos, x, y });
   }, [pos]);
 
   React.useEffect(() => {
@@ -115,9 +137,18 @@ export function ContextMenu({ items, children, className }: ContextMenuProps) {
       <span
         className={cn("inline-flex", className)}
         onContextMenu={(e) => {
+          if (trigger !== "contextmenu") return;
           e.preventDefault();
           select(Math.max(0, firstEnabled()));
-          setPos({ x: e.clientX, y: e.clientY });
+          setPos({ x: e.clientX, y: e.clientY, flipTo: null });
+        }}
+        onClick={(e) => {
+          if (trigger !== "click") return;
+          if (pos) return close(); // second click on the trigger dismisses
+          const r = e.currentTarget.getBoundingClientRect();
+          select(Math.max(0, firstEnabled()));
+          onOpen?.();
+          setPos({ x: r.left, y: r.bottom + 4, flipTo: r.top - 4 });
         }}
       >
         {children}

@@ -77,7 +77,7 @@ export function TopBar() {
       >
         {isLiked ? (
           <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15">
-            <Heart className="h-4 w-4 text-primary" />
+            <Heart className="h-5 w-5 text-primary stroke-[0.2rem]" />
           </div>
         ) : sourceImage ? (
           <img

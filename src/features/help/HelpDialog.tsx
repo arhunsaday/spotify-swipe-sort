@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ListPlus,
+  Music2,
   Pause,
   Play,
   Repeat,
@@ -14,6 +15,7 @@ import { useUiStore } from "@/store/useUiStore";
 import { useSessionStore } from "@/store/useSessionStore";
 import { usePlayerStore } from "@/store/usePlayerStore";
 import { useLibraryStore } from "@/store/useLibraryStore";
+import { toggleFullTracks } from "@/lib/playback";
 
 export function HelpDialog() {
   const open = useUiStore((s) => s.helpOpen);
@@ -66,9 +68,15 @@ export function HelpDialog() {
                     <Play className="h-4 w-4" />
                   )
                 }
-                label="Play / pause preview"
+                label="Play / pause"
                 keys={["Space"]}
                 onSelect={() => run(() => player().toggle())}
+              />
+              <Item
+                icon={<Music2 className="h-4 w-4" />}
+                label={`Audio source: ${lib().settings.fullTracks ? "full track" : "30s preview"}`}
+                keys={["f"]}
+                onSelect={() => run(toggleFullTracks)}
               />
             </Group>
 

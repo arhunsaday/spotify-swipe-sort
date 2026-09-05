@@ -219,3 +219,39 @@ export async function removeTracksFromTarget(
   }
   return snapshot;
 }
+
+/* ---------------------------------------------------------------- playback */
+
+export interface SpotifyDevice {
+  id: string | null;
+  name: string;
+  type: string;
+  is_active: boolean;
+  is_restricted: boolean;
+  supports_volume?: boolean;
+}
+
+/** Every Spotify client currently visible to the account — phone, desktop app,
+ *  speaker, and this tab once the Web Playback SDK has connected. */
+export async function getDevices(): Promise<SpotifyDevice[]> {
+  const res = await spotifyFetch<{ devices: SpotifyDevice[] }>(
+    "/me/player/devices",
+  );
+  return res?.devices ?? [];
+}
+
+/** Start one track on a known device, optionally partway in. Targeting the
+ *  Web Playback SDK's own device id is how in-app playback begins. */
+export async function playTrackOnDevice(
+  deviceId: string,
+  uri: string,
+  positionMs = 0,
+): Promise<void> {
+  await spotifyFetch(`/me/player/play?device_id=${deviceId}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      uris: [uri],
+      position_ms: Math.max(0, Math.round(positionMs)),
+    }),
+  });
+}

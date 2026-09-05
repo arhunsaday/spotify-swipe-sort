@@ -17,7 +17,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import { LIKED_SOURCE_ID, useLibraryStore } from "@/store/useLibraryStore";
@@ -76,7 +75,7 @@ export function SetupDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-2 px-6 pb-3">
+        <div className="flex items-center gap-2 px-6 pb-6">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -109,7 +108,9 @@ export function SetupDialog() {
               <Row
                 title="Liked Songs"
                 subtitle="your saved tracks"
-                icon={<Heart className="h-4 w-4 text-primary" />}
+                icon={
+                  <Heart className="h-5 w-5 text-primary stroke-[0.2rem]" />
+                }
                 isSource={sourceId === LIKED_SOURCE_ID}
                 onSource={() => setSource(LIKED_SOURCE_ID)}
                 targetKey={targetKey(LIKED_SOURCE_ID)}
@@ -256,12 +257,12 @@ function SettingsSection() {
     {
       key: "batchMode",
       label: "Batch mode",
-      hint: "Queue adds/removes and apply them together (Enter) — far fewer API calls, avoids the dev-mode quota.",
+      hint: "Queue adds/removes and apply them together (avoids the dev-mode quota)",
     },
     {
       key: "moveMode",
       label: "Move (remove from source)",
-      hint: "Filing also removes the track from the source — true inbox triage. Off = copy. (Ignored in batch mode.)",
+      hint: "Filing also removes the track from the source (ignored in batch mode)",
     },
     {
       key: "previewAutoplay",

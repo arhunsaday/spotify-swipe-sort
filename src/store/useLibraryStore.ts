@@ -16,6 +16,8 @@ export interface Settings {
   onlyUnfiled: boolean;
   /** queue adds/removes locally and apply them in one batched request set. */
   batchMode: boolean;
+  /** play whole tracks through the Web Playback SDK instead of 30s previews. */
+  fullTracks: boolean;
 }
 
 /** Queued (not-yet-applied) batch changes per target playlist. Persisted. */
@@ -45,7 +47,11 @@ interface LibraryState {
   toggleTarget: (pl: { id: string; name: string; imageUrl?: string }) => void;
   setSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
   setPosition: (sourceId: string, index: number) => void;
-  queueChange: (targetId: string, trackId: string, op: "add" | "remove") => void;
+  queueChange: (
+    targetId: string,
+    trackId: string,
+    op: "add" | "remove",
+  ) => void;
   clearPending: () => void;
   /** drop only the ids that were successfully applied — anything queued while
    *  the flush was in flight stays queued. */
@@ -76,9 +82,10 @@ export const useLibraryStore = create<LibraryState>()(
         autoAdvance: false,
         moveMode: false,
         previewAutoplay: true,
-        reverse: false,
+        reverse: true,
         onlyUnfiled: false,
-        batchMode: false,
+        batchMode: true,
+        fullTracks: false,
       },
       positions: {},
       pending: {},
@@ -109,7 +116,10 @@ export const useLibraryStore = create<LibraryState>()(
       ensurePlaylists: async () => {
         if (playlistsInFlight) return playlistsInFlight;
         const { playlists, playlistsSyncedAt } = get();
-        if (playlists.length > 0 && Date.now() - playlistsSyncedAt < PLAYLISTS_TTL)
+        if (
+          playlists.length > 0 &&
+          Date.now() - playlistsSyncedAt < PLAYLISTS_TTL
+        )
           return;
         return get().loadPlaylists();
       },

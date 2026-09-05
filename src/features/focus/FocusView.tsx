@@ -4,11 +4,15 @@ import { ChevronLeft, ChevronRight, Music2 } from "lucide-react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { playFullTrack } from "@/lib/playback";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useLibraryStore } from "@/store/useLibraryStore";
 import { usePlayerStore } from "@/store/usePlayerStore";
 import { prefetchPreviews, resolvePreview } from "@/lib/preview";
 import type { SpotifyTrack } from "@/types";
+
+/** How long browsing has to settle before a full track is actually started. */
+const START_DEBOUNCE_MS = 300;
 
 /** Prefer a mid-size cover — the 640px original is wasted on a 340px box. */
 function coverUrl(track: SpotifyTrack | null): string {
@@ -30,20 +34,24 @@ export function FocusView() {
   const next = useSessionStore((s) => s.next);
   const prev = useSessionStore((s) => s.prev);
   const autoplay = useLibraryStore((s) => s.settings.previewAutoplay);
+  const fullTracks = useLibraryStore((s) => s.settings.fullTracks);
 
   const playing = usePlayerStore((s) => s.playing);
   const toggle = usePlayerStore((s) => s.toggle);
   const load = usePlayerStore((s) => s.load);
+  const stopPreview = usePlayerStore((s) => s.stopPreview);
   const setPreviewVia = usePlayerStore((s) => s.setPreviewVia);
   const previewVia = usePlayerStore((s) => s.previewVia);
 
   const track = tracks[index] ?? null;
   const noPreview = previewVia === "none";
   const reqId = useRef(0);
+  const lastMode = useRef(fullTracks);
 
   const cover = coverUrl(track);
 
-  // resolve the preview whenever the current track changes
+  // start audio for the current track — the whole track via the SDK in
+  // full-track mode, otherwise the iTunes preview
   useEffect(() => {
     if (!track) {
       load(null, false);
@@ -51,14 +59,31 @@ export function FocusView() {
       return;
     }
     const id = ++reqId.current;
+    const modeSwitch = lastMode.current !== fullTracks;
+    lastMode.current = fullTracks;
     setPreviewVia("loading");
+    if (fullTracks) {
+      stopPreview();
+      // Each start is a Spotify write, so holding → would fire one per track
+      // and burn the shared dev-mode quota. Wait for the browsing to settle,
+      // the same way preview prefetching does.
+      const t = window.setTimeout(() => {
+        void playFullTrack(track).then((ok) => {
+          // a failed start flips `fullTracks` off, which re-runs this effect;
+          // reqId has moved on by then, so we don't paint a stale "none"
+          if (id !== reqId.current) return;
+          setPreviewVia(ok ? "spotify" : "none");
+        });
+      }, START_DEBOUNCE_MS);
+      return () => window.clearTimeout(t);
+    }
     resolvePreview(track).then((res) => {
       if (id !== reqId.current) return; // stale
       setPreviewVia(res.url ? res.via : "none");
-      load(res.url, autoplay);
+      load(res.url, autoplay || modeSwitch);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track?.id]);
+  }, [track?.id, fullTracks]);
 
   // warm the next few tracks so → is instant: iTunes lookup + cover image.
   // Debounced so holding the arrow key doesn't queue a lookup per track.
@@ -66,14 +91,15 @@ export function FocusView() {
     const upcoming = tracks.slice(index + 1, index + 4);
     if (upcoming.length === 0) return;
     const t = window.setTimeout(() => {
-      void prefetchPreviews(upcoming);
+      // full-track mode never touches iTunes — only the covers are worth warming
+      if (!fullTracks) void prefetchPreviews(upcoming);
       for (const u of upcoming) {
         const url = coverUrl(u);
         if (url) new Image().src = url;
       }
     }, 300);
     return () => window.clearTimeout(t);
-  }, [tracks, index]);
+  }, [tracks, index, fullTracks]);
 
   if (status === "loading") {
     return (
@@ -143,27 +169,39 @@ export function FocusView() {
             transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
             className="flex w-full flex-col items-center"
           >
-            <div
-              className={cn(
-                "aspect-square w-full max-w-[clamp(160px,38vh,340px)] overflow-hidden rounded-2xl border border-white/10 shadow-[0_28px_90px_-28px_rgba(0,0,0,0.85)] transition-[filter,opacity] duration-300",
-                noPreview && "opacity-70 grayscale",
-              )}
-            >
-              {cover ? (
-                <img
-                  src={cover}
-                  alt=""
-                  className="h-full w-full object-cover drag-none"
-                  draggable={false}
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center bg-secondary">
-                  <Music2 className="h-10 w-10 text-muted-foreground" />
-                </div>
-              )}
+            <div className="flex w-full items-center justify-center gap-3">
+              {/* mirrors the spine's width so the cover stays centred */}
+              <div className="w-5 shrink-0" aria-hidden />
+              <div
+                className={cn(
+                  "aspect-square w-full max-w-[clamp(160px,38vh,340px)] overflow-hidden rounded-2xl border border-white/10 shadow-[0_28px_90px_-28px_rgba(0,0,0,0.85)] transition-[filter,opacity] duration-300",
+                  noPreview && "opacity-70 grayscale",
+                )}
+              >
+                {cover ? (
+                  <img
+                    src={cover}
+                    alt=""
+                    className="h-full w-full object-cover drag-none"
+                    draggable={false}
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center bg-secondary">
+                    <Music2 className="h-10 w-10 text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+              {/* album name set like a book spine, reading top to bottom */}
+              <p
+                title={track.album.name}
+                className="max-h-[clamp(160px,38vh,320px)] w-5 shrink-0 truncate text-center tracking-wide text-muted-foreground/70 [writing-mode:vertical-rl] self-start mt-2"
+              >
+                {track.album.name}
+                {track.album.name}
+              </p>
             </div>
 
-            <h1 className="mt-5 line-clamp-2 text-center text-3xl font-bold tracking-tight hover:text-white/60">
+            <h1 className="mt-5 line-clamp-1 text-center text-2xl font-bold tracking-tight hover:text-white/60">
               <a
                 href={`https://open.spotify.com/track/${track.id}`}
                 target="_blank"
@@ -184,9 +222,6 @@ export function FocusView() {
               >
                 {track.artists.map((a) => a.name).join(", ")}
               </a>
-            </p>
-            <p className="mt-0.5 text-center text-sm text-muted-foreground/70">
-              {track.album.name}
             </p>
           </motion.div>
         </AnimatePresence>
@@ -237,7 +272,9 @@ function Centered({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function MaterialSymbolsPlayArrowRounded(props: React.SVGProps<SVGSVGElement>) {
+export function MaterialSymbolsPlayArrowRounded(
+  props: React.SVGProps<SVGSVGElement>,
+) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -255,7 +292,9 @@ export function MaterialSymbolsPlayArrowRounded(props: React.SVGProps<SVGSVGElem
   );
 }
 
-export function MaterialSymbolsPauseRounded(props: React.SVGProps<SVGSVGElement>) {
+export function MaterialSymbolsPauseRounded(
+  props: React.SVGProps<SVGSVGElement>,
+) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

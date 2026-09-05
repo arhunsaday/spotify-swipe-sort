@@ -7,8 +7,8 @@ export const HOTKEYS = [
 
 export const MAX_TARGETS = HOTKEYS.length;
 
-/** Keys owned by global navigation/undo — never bindable to a target. */
-export const RESERVED_KEYS = new Set(["h", "l", "z"]);
+/** Keys owned by global navigation/undo/playback — never bindable to a target. */
+export const RESERVED_KEYS = new Set(["h", "l", "z", "f"]);
 
 /** Any single lowercase letter or digit is bindable, except reserved nav keys. */
 export function isAllowedKey(k: string): boolean {

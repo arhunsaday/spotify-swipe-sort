@@ -6,13 +6,20 @@ import {
   Copy,
   ExternalLink,
   Link2,
+  Laptop,
+  Loader2,
   Maximize2,
+  MonitorSpeaker,
   Minimize2,
   Pause,
   Play,
   RotateCcw,
+  Smartphone,
+  Speaker,
+  Timer,
   Volume2,
   VolumeX,
+  Music,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -26,8 +33,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn, formatTime } from "@/lib/utils";
+import { playOnDevice, toggleFullTracks } from "@/lib/playback";
 import { usePlayerStore } from "@/store/usePlayerStore";
 import { useSessionStore } from "@/store/useSessionStore";
+import { useLibraryStore } from "@/store/useLibraryStore";
+import { getDevices, type SpotifyDevice } from "@/api/spotify";
+import type { SpotifyTrack } from "@/types";
 
 export function PlayerBar() {
   const track = useSessionStore((s) => s.tracks[s.index] ?? null);
@@ -43,12 +54,14 @@ export function PlayerBar() {
     duration,
     volume,
     previewVia,
+    sdkStatus,
     toggle,
     play,
     seekFraction,
     setVolume,
   } = usePlayerStore();
 
+  const fullTracks = useLibraryStore((s) => s.settings.fullTracks);
   const cover = track?.album.images.at(-1)?.url ?? track?.album.images[0]?.url;
   const pct = duration ? (currentTime / duration) * 100 : 0;
   const noPreview = previewVia === "none";
@@ -73,7 +86,7 @@ export function PlayerBar() {
       disabled: !track || noPreview,
     },
     {
-      label: "Play on Spotify",
+      label: "Open on Spotify web",
       icon: ExternalLink,
       divider: true,
       onSelect: () => window.open(spotifyUrl, "_blank", "noopener,noreferrer"),
@@ -133,7 +146,7 @@ export function PlayerBar() {
                 target="_blank"
                 rel="noreferrer"
                 title="Open in Spotify"
-                className="cursor-pointer text-inherit no-underline"
+                className="cursor-pointer text-inherit no-underline hover:text-white/80"
               >
                 {track.name}
               </a>
@@ -142,7 +155,15 @@ export function PlayerBar() {
             )}
           </p>
           <p className="truncate text-xs text-muted-foreground">
-            {track?.artists.map((a) => a.name).join(", ") ?? ""}
+            <a
+              href={`https://open.spotify.com/artist/${track?.artists[0].id}`}
+              target="_blank"
+              rel="noreferrer"
+              title="Open in Spotify"
+              className="cursor-pointer text-inherit no-underline hover:text-white/80"
+            >
+              {track?.artists.map((a) => a.name).join(", ") ?? ""}
+            </a>
           </p>
         </div>
       </div>
@@ -206,7 +227,11 @@ export function PlayerBar() {
 
       {/* right cluster: jump · volume · fullscreen */}
       <div className="ml-auto flex items-center gap-3">
-        {/* <PreviewBadge via={previewVia} /> */}
+        <SourceToggle
+          full={fullTracks}
+          connecting={sdkStatus === "connecting"}
+        />
+        <DevicePicker track={track} />
 
         {total > 0 && (
           <div className="hidden items-center gap-1 text-xs text-muted-foreground md:flex">
@@ -277,6 +302,108 @@ export function PlayerBar() {
         </Tooltip>
       </div>
     </div>
+  );
+}
+
+/** One button, two states. It's a mode you flip mid-session, so it lives in
+ *  the bar rather than in settings. */
+function SourceToggle({
+  full,
+  connecting,
+}: {
+  full: boolean;
+  connecting: boolean;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-pressed={full}
+      onClick={toggleFullTracks}
+      title={
+        full
+          ? "Whole track in this tab — click for 30s previews (F)"
+          : "30s preview — click for whole tracks in this tab (F)"
+      }
+      className={cn(
+        "hidden h-7 gap-1.5 px-2 text-sm sm:inline-flex",
+        full ? "" : "",
+      )}
+    >
+      {connecting ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : full ? (
+        <Music className="h-4 w-4" />
+      ) : (
+        <Timer className="h-4 w-4" />
+      )}
+      {full ? "Full track" : "Preview"}
+    </Button>
+  );
+}
+
+/** Spotify reports a free-form `type`; these are the ones that actually show up. */
+function deviceIcon(type: string) {
+  const t = type.toLowerCase();
+  if (t === "smartphone" || t === "tablet") return Smartphone;
+  if (t === "speaker" || t === "avr" || t === "stb") return Speaker;
+  if (t === "computer") return Laptop;
+  return MonitorSpeaker;
+}
+
+/** Picks where the current track plays. Devices are re-fetched on every open —
+ *  they appear and vanish as clients wake and sleep, so a cached list lies. */
+function DevicePicker({ track }: { track: SpotifyTrack | null }) {
+  const [devices, setDevices] = useState<SpotifyDevice[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = () => {
+    setLoading(true);
+    getDevices()
+      .then(setDevices)
+      .catch(() => setDevices([]))
+      .finally(() => setLoading(false));
+  };
+
+  let items: ContextMenuItem[];
+  if (loading && !devices) {
+    items = [
+      { label: "Looking for devices…", onSelect: () => {}, disabled: true },
+    ];
+  } else if (devices && devices.length > 0) {
+    items = devices.map((d) => ({
+      label: d.is_active ? `${d.name} · active` : d.name,
+      icon: deviceIcon(d.type),
+      disabled: !d.id || d.is_restricted || !track,
+      onSelect: () => {
+        if (track) void playOnDevice(track, d);
+      },
+    }));
+  } else {
+    items = [
+      { label: "No Spotify device found", onSelect: () => {}, disabled: true },
+      {
+        label: "Open the Spotify app",
+        icon: ExternalLink,
+        onSelect: () => {
+          if (track) window.location.href = track.uri;
+        },
+        disabled: !track,
+      },
+    ];
+  }
+
+  return (
+    <ContextMenu items={items} trigger="click" onOpen={refresh}>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-haspopup="menu"
+        title="Play on another device"
+      >
+        <MonitorSpeaker className="h-[18px] w-[18px]" />
+      </Button>
+    </ContextMenu>
   );
 }
 

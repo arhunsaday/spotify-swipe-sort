@@ -68,6 +68,7 @@ function TargetRow({ tg }: { tg: Target }) {
   const perTarget = useSessionStore((s) => s.stats.perTarget);
   const current = useSessionStore((s) => s.tracks[s.index] ?? null);
   const [editing, setEditing] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
   const isIn = current ? membership[tg.id]?.has(current.id) : false;
   const count = perTarget[tg.id] ?? 0;
@@ -77,15 +78,18 @@ function TargetRow({ tg }: { tg: Target }) {
       value={tg}
       dragListener={false}
       dragControls={controls}
-      whileDrag={{
-        scale: 1.03,
-        backgroundColor: "hsl(var(--popover))",
-        boxShadow: "0 12px 32px -12px rgba(0,0,0,0.7)",
-      }}
+      // Transforms go through Framer, colour and shadow stay in CSS. `whileDrag`
+      // can't restore a background that came from a class — it has no origin
+      // value to animate back to, so the inline one stuck after the drop.
+      whileDrag={{ scale: 1.03 }}
+      onDragStart={() => setDragging(true)}
+      onDragEnd={() => setDragging(false)}
       className={cn(
         "group flex items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1.5 transition-colors",
         "hover:border-border hover:bg-accent",
         isIn && "border-success/30 bg-success/5",
+        dragging &&
+          "bg-popover shadow-[0_12px_32px_-12px_rgba(0,0,0,0.7)] hover:bg-popover",
       )}
     >
       {editing ? (
@@ -111,7 +115,10 @@ function TargetRow({ tg }: { tg: Target }) {
           title="Click, then press any key to rebind"
           className="shrink-0"
         >
-          <Kbd large className="uppercase hover:border-primary hover:text-primary">
+          <Kbd
+            large
+            className="uppercase hover:border-primary hover:text-primary"
+          >
             {tg.key || "–"}
           </Kbd>
         </button>
@@ -131,7 +138,7 @@ function TargetRow({ tg }: { tg: Target }) {
           />
         ) : tg.id === LIKED_SOURCE_ID ? (
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15">
-            <Heart className="h-4 w-4 text-primary" />
+            <Heart className="h-5 w-5 text-primary stroke-[0.2rem]" />
           </div>
         ) : (
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-secondary">
