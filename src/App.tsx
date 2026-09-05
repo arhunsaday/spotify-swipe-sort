@@ -85,7 +85,7 @@ export default function App() {
           <main className="min-w-0 flex-1">
             <FocusView />
           </main>
-          <aside className="hidden w-72 shrink-0 border-l border-border lg:block xl:w-80">
+          <aside className="hidden w-72 shrink-0 border-l border-border md:block xl:w-80">
             <TargetRail />
           </aside>
         </div>
